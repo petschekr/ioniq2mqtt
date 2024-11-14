@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 use capnp::serialize;
 use tmq::Context;
 use anyhow::Result;
-use tokio::sync::mpsc::{self, Receiver};
+use tokio::sync::mpsc::{self, Sender, Receiver};
 use futures::StreamExt;
 use rumqttc::{AsyncClient, MqttOptions, QoS, TlsConfiguration, Transport};
 use serde::Serialize;
@@ -606,11 +606,15 @@ mod obd_data {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    let (tx, rx) = mpsc::channel::<(obd_data::Data, String)>(10);
+async fn main() {
+    let (tx, rx) = mpsc::channel::<(obd_data::Data, String)>(100);
 
     tokio::spawn(mqtt(rx));
+    tokio::spawn(update_can(tx));
+    tokio::spawn(update_location());
+}
 
+async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
         .connect("tcp://127.0.0.1:7015")? // Port for the CAN stream
         .subscribe(&[])?;
@@ -629,9 +633,10 @@ async fn main() -> Result<()> {
                     for can_event in can_data.iter() {
                         let data = can_event.get_dat()?;
                         if can_event.get_src() == 0 && (0x700..=0x7A0).contains(&can_event.get_address()) {
-                            // TODO: for debug logging only
+                            // For debug logging only
+                            #[cfg(debug_assertions)]
                             if can_event.get_address() == 0x701 && data[4] == 0x00
-                            || can_event.get_address() == 0x710 && data[5] < 55 {
+                                || can_event.get_address() == 0x710 && data[5] < 55 {
                                 eprintln!("Possible all-blank data example: {:x} -> {:02x?}", can_event.get_address(), &data);
                             }
                             if data.iter().all(|x| x == &0x00) {
@@ -668,7 +673,7 @@ async fn main() -> Result<()> {
                                 },
                             };
                             if let Some(processed_data) = processed_data {
-                                tx.send((processed_data, raw)).await?;
+                                tx.try_send((processed_data, raw))?;
                             }
                         }
                         else if can_event.get_src() == 1 && can_event.get_address() == 0x130 {
@@ -676,12 +681,60 @@ async fn main() -> Result<()> {
                                 // Gear shifter message
                                 let processed_data = obd_data::Shifter::process(data);
                                 if let Some(processed_data) = processed_data {
-                                    tx.send((processed_data, String::new())).await?;
+                                    tx.try_send((processed_data, String::new()))?;
                                 }
                                 last_shifter_message = Instant::now();
                             }
                         }
                     }
+                },
+                _ => {},
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn update_location() -> Result<()> {
+    let mut socket = tmq::subscribe(&Context::new())
+        .connect("tcp://127.0.0.1:30590")? // Port for "gpsLocation"
+        .subscribe(&[])?;
+
+    #[derive(Debug)]
+    struct Location {
+        latitude: f64,
+        longitude: f64,
+        altitude: f64,
+        speed: f32,
+        bearing: f32,
+        unix_timestamp_seconds: i64,
+        vertical_accuracy: f32,
+        bearing_accuracy: f32,
+        speed_accuracy: f32,
+        has_fix: bool,
+    }
+
+    while let Some(messages) = socket.next().await {
+        for message in messages? {
+            let message_reader = serialize::read_message(
+                &*message,
+                capnp::message::ReaderOptions::new(),
+            )?;
+            let event = message_reader.get_root::<log_capnp::event::Reader>()?;
+            match event.which()? {
+                log_capnp::event::GpsLocation(Ok(location_data)) => {
+                    let location = Location {
+                        latitude: location_data.get_latitude(),
+                        longitude: location_data.get_longitude(),
+                        altitude: location_data.get_altitude(),
+                        speed: location_data.get_speed(),
+                        bearing: location_data.get_bearing_deg(),
+                        unix_timestamp_seconds: location_data.get_unix_timestamp_millis() / 1000,
+                        vertical_accuracy: location_data.get_vertical_accuracy(),
+                        bearing_accuracy: location_data.get_bearing_accuracy_deg(),
+                        speed_accuracy: location_data.get_speed_accuracy(),
+                        has_fix: location_data.get_has_fix(),
+                    };
                 },
                 _ => {},
             }
