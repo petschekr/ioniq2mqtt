@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 use capnp::serialize;
 use tmq::Context;
 use anyhow::Result;
-use tokio::sync::mpsc::{self, Sender, Receiver};
+use tokio::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
 use futures::StreamExt;
 use rumqttc::{AsyncClient, MqttOptions, QoS, TlsConfiguration, Transport};
 use serde::Serialize;
@@ -607,14 +607,14 @@ mod obd_data {
 
 #[tokio::main]
 async fn main() {
-    let (tx, rx) = mpsc::channel::<(obd_data::Data, String)>(100);
+    let (tx, rx) = mpsc::unbounded_channel::<(obd_data::Data, String)>();
 
     tokio::spawn(mqtt(rx));
     tokio::spawn(update_can(tx));
     tokio::spawn(update_location());
 }
 
-async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
+async fn update_can(tx: UnboundedSender<(obd_data::Data, String)>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
         .connect("tcp://127.0.0.1:7015")? // Port for the CAN stream
         .subscribe(&[])?;
@@ -673,7 +673,7 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
                                 },
                             };
                             if let Some(processed_data) = processed_data {
-                                tx.try_send((processed_data, raw))?;
+                                tx.send((processed_data, raw))?;
                             }
                         }
                         else if can_event.get_src() == 1 && can_event.get_address() == 0x130 {
@@ -681,7 +681,7 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
                                 // Gear shifter message
                                 let processed_data = obd_data::Shifter::process(data);
                                 if let Some(processed_data) = processed_data {
-                                    tx.try_send((processed_data, String::new()))?;
+                                    tx.send((processed_data, String::new()))?;
                                 }
                                 last_shifter_message = Instant::now();
                             }
@@ -881,7 +881,7 @@ impl<'a> HASSBinarySensor<'a> {
     }
 }
 
-async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
+async fn mqtt(mut rx: UnboundedReceiver<(obd_data::Data, String)>) -> Result<()> {
     let mut mqttoptions = MqttOptions::new("ioniq2mqtt", "petschek.cc", 8883);
     mqttoptions.set_keep_alive(Duration::from_secs(5));
 
