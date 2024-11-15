@@ -63,6 +63,18 @@ impl<'a> HASSSensor<'a> {
             unit_of_measurement: None,
         }
     }
+    pub fn measurement(mut self) -> Self {
+        self.state_class = Some("MEASUREMENT".into());
+        self
+    }
+    pub fn total(mut self) -> Self {
+        self.state_class = Some("TOTAL".into());
+        self
+    }
+    pub fn total_increasing(mut self) -> Self {
+        self.state_class = Some("TOTAL_INCREASE".into());
+        self
+    }
     pub fn with_unit(mut self, unit: impl Into<String>) -> Self {
         self.unit_of_measurement = Some(unit.into());
         self
