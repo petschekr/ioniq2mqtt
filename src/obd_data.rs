@@ -4,14 +4,14 @@ pub trait Process {
     fn process(data: &[u8]) -> Option<Data>;
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub enum ChargingType {
     NotCharging,
     AC,
     DC,
     Other,
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Battery01 {
     pub charging: ChargingType,
     pub bms_ignition: bool,
@@ -110,7 +110,7 @@ impl Process for Battery01 {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Battery05 {
     pub available_charge_power: f32,
     pub available_discharge_power: f32,
@@ -166,7 +166,7 @@ impl Process for Battery05 {
         Some(Data::Battery05(data))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Battery11 {
     pub ac_charging_events: u32,
     pub dc_charging_events: u32,
@@ -188,7 +188,7 @@ impl Process for Battery11 {
         }))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TirePressures {
     pub front_left_psi: f32,
     pub front_left_temp: u8,
@@ -217,7 +217,7 @@ impl Process for TirePressures {
         Some(Data::TirePressures(data))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HVAC {
     pub indoor_temp: f32,
     pub outdoor_temp: f32,
@@ -232,7 +232,7 @@ impl Process for HVAC {
         }))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ICCU01 {
     ac_maximum_current_limit: f32,
     dc_maximum_current_limit: f32,
@@ -253,7 +253,7 @@ impl Process for ICCU01 {
         }))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ICCU02 {
     obc_ac_current_a: f32,
     obc_ac_current_b: f32,
@@ -300,7 +300,7 @@ impl Process for ICCU02 {
         Some(Data::ICCU02(data))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ICCU03 {
     obc_dc_target_current: f32,
     obc_dc_target_voltage: f32,
@@ -313,7 +313,7 @@ impl Process for ICCU03 {
         }))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ICCU11 {
     aux_battery_current: f32,
     aux_battery_soc: u8,
@@ -342,7 +342,7 @@ impl Process for ICCU11 {
         Some(Data::ICCU11(data))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VCMS01 {
     ac_charging_state: bool, // [17] & bit 2
     dc_charging_state: bool, // [17] & bit 3
@@ -362,7 +362,7 @@ impl Process for VCMS01 {
         Some(Data::VCMS01(data))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VCMS02 {
     evse_delivered_power: f32, // [23..25] * 10.0
     evse_main_power: f32, // [27]
@@ -390,7 +390,7 @@ impl Process for VCMS02 {
         Some(Data::VCMS02(data))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VCMS03 {
     ac_charger_current: f32, // [38..40] / 100.0
     ac_charging_counter: u16, // [30..32]
@@ -436,7 +436,7 @@ impl Process for VCMS03 {
         Some(Data::VCMS03(data))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VCMS04 {
     ac_inlet_1_temperature: i8, // [10] - 50
     main_battery_relay_status: bool, // [4] & bit 2
@@ -456,7 +456,7 @@ impl Process for VCMS04 {
         Some(Data::VCMS04(data))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Dashboard {
     pub odometer: u32,
 }
@@ -467,7 +467,7 @@ impl Process for Dashboard {
         }))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct IGPM03 {
     ignition_on: bool,
     driver_seat_belt: bool,
@@ -498,7 +498,7 @@ impl Process for IGPM03 {
         }))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct IGPM04 {
     driver_door_unlocked: bool,
     passenger_door_unlocked: bool,
@@ -517,7 +517,7 @@ impl Process for IGPM04 {
         }))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CabinEnvironment {
     pub pressure: f32,
     pub temperature: f32,
@@ -532,14 +532,14 @@ impl Process for CabinEnvironment {
         }))
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub enum Gear {
     Park,
     Reverse,
     Neutral,
     Drive
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Shifter {
     pub gear: Gear,
 }
@@ -558,7 +558,7 @@ impl Process for Shifter {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Data {
     Battery01(Battery01),
     Battery05(Battery05),

@@ -2,14 +2,17 @@ mod obd_data;
 mod hass;
 
 use std::time::{Duration, Instant};
+use std::sync::Arc;
 use capnp::serialize;
 use tmq::Context;
 use anyhow::Result;
-use tokio::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
+use tokio::sync::broadcast::{self, Sender, Receiver};
+use tokio::sync::Mutex;
+use tokio::time;
 use futures::StreamExt;
 use rumqttc::{AsyncClient, MqttOptions, QoS, TlsConfiguration, Transport};
 use serde::Serialize;
-use crate::obd_data::Process;
+use crate::obd_data::{ChargingType, Gear, Process};
 use crate::hass::{ HASSSensor, HASSBinarySensor };
 
 mod log_capnp {
@@ -25,16 +28,76 @@ mod legacy_capnp {
     include!(concat!(env!("OUT_DIR"), "/legacy_capnp.rs"));
 }
 
-#[tokio::main]
-async fn main() {
-    let (tx, rx) = mpsc::unbounded_channel::<(obd_data::Data, String)>();
-
-    tokio::spawn(mqtt(rx));
-    tokio::spawn(update_can(tx));
-    tokio::spawn(update_location());
+#[derive(Serialize, Debug, Default)]
+struct Telemetry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    utc: Option<i64>, // Seconds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    soc: Option<f32>, // From display
+    #[serde(skip_serializing_if = "Option::is_none")]
+    power: Option<f32>, // kW
+    #[serde(skip_serializing_if = "Option::is_none")]
+    speed: Option<u8>, // kmh
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lat: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lon: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_charging: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_dcfc: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    is_parked: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    soe: Option<f32>, // kWh, usable energy of battery
+    #[serde(skip_serializing_if = "Option::is_none")]
+    soh: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    heading: Option<f32>, // degrees
+    #[serde(skip_serializing_if = "Option::is_none")]
+    elevation: Option<f64>, // meters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ext_temp: Option<f32>, // C
+    #[serde(skip_serializing_if = "Option::is_none")]
+    batt_temp: Option<f32>, // C
+    voltage: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    odometer: Option<u32>, // km
+    // hvac_power
+    // hvac_setpoint
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cabin_temp: Option<f32>, // C
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tire_pressure_fl: Option<f32>, // kPa
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tire_pressure_fr: Option<f32>, // kPa
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tire_pressure_rl: Option<f32>, // kPa
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tire_pressure_rr: Option<f32>, // kPa
 }
 
-async fn update_can(tx: UnboundedSender<(obd_data::Data, String)>) -> Result<()> {
+#[tokio::main]
+async fn main() {
+    let (tx, rx) = broadcast::channel::<(obd_data::Data, String)>(16);
+    let telemetry_update_rx = tx.subscribe();
+
+    let telemetry = Arc::new(Mutex::new(Telemetry::default()));
+
+    let mut tasks = vec![];
+
+    tasks.push(tokio::spawn(mqtt(rx)));
+    tasks.push(tokio::spawn(update_can(tx)));
+    tasks.push(tokio::spawn(update_telemetry_with_can(telemetry_update_rx, telemetry.clone())));
+    tasks.push(tokio::spawn(update_location(telemetry.clone())));
+    tasks.push(tokio::spawn(abrp(telemetry.clone())));
+
+    futures::future::join_all(tasks).await;
+}
+
+async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
         .connect("tcp://127.0.0.1:7015")? // Port for the CAN stream
         .subscribe(&[])?;
@@ -115,7 +178,47 @@ async fn update_can(tx: UnboundedSender<(obd_data::Data, String)>) -> Result<()>
     Ok(())
 }
 
-async fn update_location() -> Result<()> {
+async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
+    while let Ok((forwarded_data, _raw)) = rx.recv().await {
+        let mut telemetry = telemetry.lock().await;
+        match forwarded_data {
+            obd_data::Data::Battery01(data) => {
+                telemetry.power = Some(data.battery_power);
+                telemetry.is_charging = Some(data.charging != ChargingType::NotCharging);
+                telemetry.is_dcfc = Some(data.charging == ChargingType::DC);
+                telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
+                telemetry.voltage = Some(data.battery_voltage);
+                telemetry.current = Some(data.battery_current);
+            },
+            obd_data::Data::Battery05(data) => {
+                telemetry.soc = Some(data.soc);
+                telemetry.soh = Some(data.soh);
+                telemetry.soe = Some(data.remaining_energy / 1000.0);
+            },
+            obd_data::Data::TirePressures(data) => {
+                telemetry.tire_pressure_fl = Some(data.front_left_psi * 6.89476);
+                telemetry.tire_pressure_fr = Some(data.front_right_psi * 6.89476);
+                telemetry.tire_pressure_rl = Some(data.rear_left_psi * 6.89476);
+                telemetry.tire_pressure_rr = Some(data.rear_right_psi * 6.89476);
+            },
+            obd_data::Data::HVAC(data) => {
+                telemetry.speed = Some(data.vehicle_speed);
+                telemetry.ext_temp = Some(data.outdoor_temp);
+                telemetry.cabin_temp = Some(data.indoor_temp);
+            },
+            obd_data::Data::Dashboard(data) => {
+                telemetry.odometer = Some((data.odometer as f32 * 1.609344) as u32);
+            },
+            obd_data::Data::Shifter(data) => {
+                telemetry.is_parked = Some(data.gear == Gear::Park);
+            },
+            _ => {},
+        };
+    }
+    Ok(())
+}
+
+async fn update_location(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
         .connect("tcp://127.0.0.1:30590")? // Port for "gpsLocation"
         .subscribe(&[])?;
@@ -133,6 +236,7 @@ async fn update_location() -> Result<()> {
         speed_accuracy: f32,
         has_fix: bool,
     }
+    let mut current_location: Option<Location> = None;
 
     while let Some(messages) = socket.next().await {
         for message in messages? {
@@ -155,15 +259,61 @@ async fn update_location() -> Result<()> {
                         speed_accuracy: location_data.get_speed_accuracy(),
                         has_fix: location_data.get_has_fix(),
                     };
+
+                    if location.has_fix && location.unix_timestamp_seconds > 0 {
+                        current_location.replace(location);
+                    }
                 },
                 _ => {},
             }
+        }
+        if let Some(location) = current_location.take() {
+            let mut telemetry = telemetry.lock().await;
+            telemetry.utc = Some(location.unix_timestamp_seconds);
+            telemetry.lat = Some(location.latitude);
+            telemetry.lon = Some(location.longitude);
+            telemetry.heading = Some(location.bearing);
+            telemetry.elevation = Some(location.altitude);
         }
     }
     Ok(())
 }
 
-async fn mqtt(mut rx: UnboundedReceiver<(obd_data::Data, String)>) -> Result<()> {
+async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
+    let mut interval = time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
+
+    let mut last_sent_time = i64::default();
+
+    loop {
+        interval.tick().await;
+        let telemetry = {
+            let telemetry = telemetry.lock().await;
+            if telemetry.utc.is_none() || telemetry.utc == Some(last_sent_time) {
+                continue;
+            }
+            last_sent_time = telemetry.utc.unwrap();
+            serde_json::to_string(&*telemetry)?
+        };
+
+        let client = reqwest::Client::new();
+        let response = client.post("https://api.iternio.com/1/tlm/send")
+            .form(&[
+                ("api_key", include_str!("../certs/abrp.apikey").trim()),
+                ("token", include_str!("../certs/abrp.usertoken").trim()),
+                ("tlm", &telemetry),
+            ])
+            .send()
+            .await?;
+        let response_body = response.text().await?;
+        if response_body != "{\"status\": \"ok\"}" {
+            dbg!(&telemetry);
+            dbg!(&response_body);
+        }
+    }
+}
+
+async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
     let mut mqttoptions = MqttOptions::new("ioniq2mqtt", "petschek.cc", 8883);
     mqttoptions.set_keep_alive(Duration::from_secs(5));
 
@@ -308,7 +458,7 @@ async fn mqtt(mut rx: UnboundedReceiver<(obd_data::Data, String)>) -> Result<()>
         client.publish(binary_sensor.config_topic(), QoS::AtLeastOnce, true, serde_json::to_vec(binary_sensor)?).await?;
     }
 
-    while let Some((forwarded_data, raw)) = rx.recv().await {
+    while let Ok((forwarded_data, raw)) = rx.recv().await {
         let (topic_root, data) = match forwarded_data {
             obd_data::Data::Battery01(data) => ("homeassistant/sensor/ioniq/batterydata1", serde_json::to_vec(&data)?),
             obd_data::Data::Battery05(data) => ("homeassistant/sensor/ioniq/batterydata5", serde_json::to_vec(&data)?),

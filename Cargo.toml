@@ -12,6 +12,7 @@ futures = "0.3"
 rumqttc = "0.24"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["http2", "charset", "rustls-tls"] }
 
 [build-dependencies]
 capnpc = "0.20"
