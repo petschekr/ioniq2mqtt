@@ -94,7 +94,12 @@ async fn main() {
     tasks.push(tokio::spawn(update_location(telemetry.clone())));
     tasks.push(tokio::spawn(abrp(telemetry.clone())));
 
-    futures::future::join_all(tasks).await;
+    let errored = futures::future::select_all(tasks).await;
+    println!("A task exited!!");
+    dbg!(&errored);
+    if let Err(err) = errored.0.unwrap() {
+        eprintln!("Task errored: {:?}", err);
+    }
 }
 
 async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
@@ -289,7 +294,7 @@ async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
         interval.tick().await;
         let telemetry = {
             let telemetry = telemetry.lock().await;
-            if telemetry.utc.is_none() || telemetry.utc == Some(last_sent_time) {
+            if telemetry.utc.is_none() || telemetry.utc.unwrap() == last_sent_time {
                 continue;
             }
             last_sent_time = telemetry.utc.unwrap();
@@ -303,8 +308,15 @@ async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
                 ("token", include_str!("../certs/abrp.usertoken").trim()),
                 ("tlm", &telemetry),
             ])
-            .send()
-            .await?;
+            .timeout(Duration::from_secs(5))
+            .send().await;
+        let response = match response {
+            Ok(response) => response,
+            Err(err) => {
+                eprintln!("ABRP Error = {err:?}");
+                continue;
+            }
+        };
         let response_body = response.text().await?;
         if response_body != "{\"status\": \"ok\"}" {
             dbg!(&telemetry);
@@ -336,7 +348,8 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
                     // println!("Event = {v:?}");
                 }
                 Err(e) => {
-                    println!("Error = {e:?}");
+                    eprintln!("MQTT Error = {e:?}");
+                    tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             }
         }
@@ -458,35 +471,42 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         client.publish(binary_sensor.config_topic(), QoS::AtLeastOnce, true, serde_json::to_vec(binary_sensor)?).await?;
     }
 
-    while let Ok((forwarded_data, raw)) = rx.recv().await {
-        let (topic_root, data) = match forwarded_data {
-            obd_data::Data::Battery01(data) => ("homeassistant/sensor/ioniq/batterydata1", serde_json::to_vec(&data)?),
-            obd_data::Data::Battery05(data) => ("homeassistant/sensor/ioniq/batterydata5", serde_json::to_vec(&data)?),
-            obd_data::Data::Battery11(data) => ("homeassistant/sensor/ioniq/batterydata11", serde_json::to_vec(&data)?),
-            obd_data::Data::TirePressures(data) => ("homeassistant/sensor/ioniq/tirepressures", serde_json::to_vec(&data)?),
-            obd_data::Data::HVAC(data) => ("homeassistant/sensor/ioniq/hvac", serde_json::to_vec(&data)?),
-            obd_data::Data::ICCU01(data) => ("homeassistant/sensor/ioniq/iccu01", serde_json::to_vec(&data)?),
-            obd_data::Data::ICCU02(data) => ("homeassistant/sensor/ioniq/iccu02", serde_json::to_vec(&data)?),
-            obd_data::Data::ICCU03(data) => ("homeassistant/sensor/ioniq/iccu03", serde_json::to_vec(&data)?),
-            obd_data::Data::ICCU11(data) => ("homeassistant/sensor/ioniq/iccu11", serde_json::to_vec(&data)?),
-            obd_data::Data::VCMS01(data) => ("homeassistant/sensor/ioniq/vcms01", serde_json::to_vec(&data)?),
-            obd_data::Data::VCMS02(data) => ("homeassistant/sensor/ioniq/vcms02", serde_json::to_vec(&data)?),
-            obd_data::Data::VCMS03(data) => ("homeassistant/sensor/ioniq/vcms03", serde_json::to_vec(&data)?),
-            obd_data::Data::VCMS04(data) => ("homeassistant/sensor/ioniq/vcms04", serde_json::to_vec(&data)?),
-            obd_data::Data::Dashboard(data) => ("homeassistant/sensor/ioniq/dashboard", serde_json::to_vec(&data)?),
-            obd_data::Data::IGPM03(data) => ("homeassistant/sensor/ioniq/igpm03", serde_json::to_vec(&data)?),
-            obd_data::Data::IGPM04(data) => ("homeassistant/sensor/ioniq/igpm04", serde_json::to_vec(&data)?),
-            obd_data::Data::CabinEnvironment(data) => {
-                client.publish("homeassistant/sensor/ioniq/cabinenvironment/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
-                continue;
+    loop {
+        match rx.recv().await {
+            Ok((forwarded_data, raw)) => {
+                let (topic_root, data) = match forwarded_data {
+                    obd_data::Data::Battery01(data) => ("homeassistant/sensor/ioniq/batterydata1", serde_json::to_vec(&data)?),
+                    obd_data::Data::Battery05(data) => ("homeassistant/sensor/ioniq/batterydata5", serde_json::to_vec(&data)?),
+                    obd_data::Data::Battery11(data) => ("homeassistant/sensor/ioniq/batterydata11", serde_json::to_vec(&data)?),
+                    obd_data::Data::TirePressures(data) => ("homeassistant/sensor/ioniq/tirepressures", serde_json::to_vec(&data)?),
+                    obd_data::Data::HVAC(data) => ("homeassistant/sensor/ioniq/hvac", serde_json::to_vec(&data)?),
+                    obd_data::Data::ICCU01(data) => ("homeassistant/sensor/ioniq/iccu01", serde_json::to_vec(&data)?),
+                    obd_data::Data::ICCU02(data) => ("homeassistant/sensor/ioniq/iccu02", serde_json::to_vec(&data)?),
+                    obd_data::Data::ICCU03(data) => ("homeassistant/sensor/ioniq/iccu03", serde_json::to_vec(&data)?),
+                    obd_data::Data::ICCU11(data) => ("homeassistant/sensor/ioniq/iccu11", serde_json::to_vec(&data)?),
+                    obd_data::Data::VCMS01(data) => ("homeassistant/sensor/ioniq/vcms01", serde_json::to_vec(&data)?),
+                    obd_data::Data::VCMS02(data) => ("homeassistant/sensor/ioniq/vcms02", serde_json::to_vec(&data)?),
+                    obd_data::Data::VCMS03(data) => ("homeassistant/sensor/ioniq/vcms03", serde_json::to_vec(&data)?),
+                    obd_data::Data::VCMS04(data) => ("homeassistant/sensor/ioniq/vcms04", serde_json::to_vec(&data)?),
+                    obd_data::Data::Dashboard(data) => ("homeassistant/sensor/ioniq/dashboard", serde_json::to_vec(&data)?),
+                    obd_data::Data::IGPM03(data) => ("homeassistant/sensor/ioniq/igpm03", serde_json::to_vec(&data)?),
+                    obd_data::Data::IGPM04(data) => ("homeassistant/sensor/ioniq/igpm04", serde_json::to_vec(&data)?),
+                    obd_data::Data::CabinEnvironment(data) => {
+                        client.publish("homeassistant/sensor/ioniq/cabinenvironment/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
+                        continue;
+                    },
+                    obd_data::Data::Shifter(data) => {
+                        client.publish("homeassistant/sensor/ioniq/shifter/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
+                        continue;
+                    },
+                };
+                client.publish(format!("{}/state", topic_root), QoS::AtLeastOnce, false, data).await?;
+                client.publish(format!("{}/raw", topic_root), QoS::AtLeastOnce, false, format!("{{\"raw\": \"{}\"}}", raw).into_bytes()).await?;
             },
-            obd_data::Data::Shifter(data) => {
-                client.publish("homeassistant/sensor/ioniq/shifter/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
-                continue;
+            Err(broadcast::error::RecvError::Lagged(lag_count)) => {
+                println!("MQTT send lagged by {} message(s)", lag_count);
             },
-        };
-        client.publish(format!("{}/state", topic_root), QoS::AtLeastOnce, false, data).await?;
-        client.publish(format!("{}/raw", topic_root), QoS::AtLeastOnce, false, format!("{{\"raw\": \"{}\"}}", raw).into_bytes()).await?;
+            Err(err) => anyhow::bail!(err),
+        }
     }
-    Ok(())
 }
