@@ -60,6 +60,7 @@ struct Telemetry {
     ext_temp: Option<f32>, // C
     #[serde(skip_serializing_if = "Option::is_none")]
     batt_temp: Option<f32>, // C
+    #[serde(skip_serializing_if = "Option::is_none")]
     voltage: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     current: Option<f32>,
