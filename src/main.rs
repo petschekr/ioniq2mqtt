@@ -98,8 +98,9 @@ async fn main() {
 
     let mut tasks = vec![];
 
+    tasks.push(tokio::spawn(update_can(tx.clone())));
+    tasks.push(tokio::spawn(update_panda_info(tx.clone())));
     tasks.push(tokio::spawn(mqtt(rx)));
-    tasks.push(tokio::spawn(update_can(tx)));
     tasks.push(tokio::spawn(update_telemetry_with_can(telemetry_update_rx, telemetry.clone())));
     tasks.push(tokio::spawn(update_location(telemetry.clone())));
     tasks.push(tokio::spawn(abrp(telemetry.clone())));
@@ -313,6 +314,40 @@ async fn update_location(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
     Ok(())
 }
 
+async fn update_panda_info(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
+    let mut socket = tmq::subscribe(&Context::new())
+        .connect("tcp://127.0.0.1:35884")? // Port for "peripheralState"
+        .subscribe(&[])?;
+
+    let mut last_peripheral_state = Instant::now();
+
+    while let Some(messages) = socket.next().await {
+        for message in messages? {
+            let message_reader = serialize::read_message(
+                &*message,
+                capnp::message::ReaderOptions::new(),
+            )?;
+            let event = message_reader.get_root::<log_capnp::event::Reader>()?;
+            match event.which()? {
+                log_capnp::event::PeripheralState(Ok(peripheral_state)) => {
+                    // Updates come in at 2 Hz, but only publish over MQTT once per minute
+                    if last_peripheral_state.elapsed().as_secs() > 60 {
+                        let data = obd_data::Panda {
+                            panda_aux_battery_voltage: peripheral_state.get_voltage() as f32 / 1000.0,
+                            panda_aux_battery_current: peripheral_state.get_current() as f32 / 1000.0,
+                            panda_fan_speed: peripheral_state.get_fan_speed_rpm(),
+                        };
+                        tx.send((obd_data::Data::Panda(data), String::new()))?;
+                        last_peripheral_state = Instant::now();
+                    }
+                },
+                _ => {},
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
     let mut interval = time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
@@ -473,6 +508,10 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("DC Inlet Temperature 2", "dc_inlet_2_temperature", "temperature", "ioniq/vcms04").with_unit("C").measurement(),
         HASSSensor::new("V2L Discharge Current", "v2l_discharging_current", "current", "ioniq/vcms01").with_unit("A").measurement(),
         HASSSensor::new("Shifter Gear", "gear", "enum", "ioniq/shifter").dont_expire(),
+
+        HASSSensor::new("Panda Voltage", "panda_aux_battery_voltage", "voltage", "ioniq/panda").with_unit("V").measurement(),
+        HASSSensor::new("Panda Current", "panda_aux_battery_current", "current", "ioniq/panda").with_unit("A").measurement(),
+        HASSSensor::new("Panda Fan", "panda_fan_speed", "frequency", "ioniq/panda").with_unit("Hz").measurement(),
     ];
     let binary_sensors = [
         HASSBinarySensor::new("Ignition On", "ignition_on", "power","ioniq/igpm03"),
@@ -526,6 +565,10 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
                     },
                     obd_data::Data::Shifter(data) => {
                         client.publish("homeassistant/sensor/ioniq/shifter/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
+                        continue;
+                    },
+                    obd_data::Data::Panda(data) => {
+                        client.publish("homeassistant/sensor/ioniq/panda/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
                         continue;
                     },
                 };
