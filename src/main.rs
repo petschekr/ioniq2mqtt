@@ -1,7 +1,7 @@
 mod obd_data;
 mod hass;
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
 use capnp::serialize;
 use tmq::Context;
@@ -30,8 +30,7 @@ mod legacy_capnp {
 
 #[derive(Serialize, Debug, Default)]
 struct Telemetry {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    utc: Option<i64>, // Seconds
+    utc: u64, // Seconds
     #[serde(skip_serializing_if = "Option::is_none")]
     soc: Option<f32>, // From display
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,10 +41,8 @@ struct Telemetry {
     lat: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     lon: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    is_charging: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    is_dcfc: Option<bool>,
+    is_charging: bool,
+    is_dcfc: bool,
     is_parked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     soe: Option<f32>, // kWh, usable energy of battery
@@ -79,13 +76,23 @@ struct Telemetry {
     tire_pressure_rr: Option<f32>, // kPa
 }
 
+fn seconds_since_epoch() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 #[tokio::main]
 async fn main() {
     let (tx, rx) = broadcast::channel::<(obd_data::Data, String)>(16);
     let telemetry_update_rx = tx.subscribe();
 
     let telemetry = Arc::new(Mutex::new(Telemetry {
+        utc: 0,
         is_parked: true,
+        is_charging: false,
+        is_dcfc: false,
         ..Telemetry::default()
     }));
 
@@ -193,33 +200,45 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, t
                 let mut telemetry = telemetry.lock().await;
                 match forwarded_data {
                     obd_data::Data::Battery01(data) => {
+                        telemetry.utc = seconds_since_epoch();
+
                         telemetry.power = Some(data.battery_power);
-                        telemetry.is_charging = Some(data.charging != ChargingType::NotCharging);
-                        telemetry.is_dcfc = Some(data.charging == ChargingType::DC);
+                        telemetry.is_charging = data.charging != ChargingType::NotCharging;
+                        telemetry.is_dcfc = data.charging == ChargingType::DC;
                         telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
                         telemetry.voltage = Some(data.battery_voltage);
                         telemetry.current = Some(data.battery_current);
                     },
                     obd_data::Data::Battery05(data) => {
+                        telemetry.utc = seconds_since_epoch();
+
                         telemetry.soc = Some(data.soc);
                         telemetry.soh = Some(data.soh);
                         telemetry.soe = Some(data.remaining_energy / 1000.0);
                     },
                     obd_data::Data::TirePressures(data) => {
+                        telemetry.utc = seconds_since_epoch();
+
                         telemetry.tire_pressure_fl = Some(data.front_left_psi * 6.89476);
                         telemetry.tire_pressure_fr = Some(data.front_right_psi * 6.89476);
                         telemetry.tire_pressure_rl = Some(data.rear_left_psi * 6.89476);
                         telemetry.tire_pressure_rr = Some(data.rear_right_psi * 6.89476);
                     },
                     obd_data::Data::HVAC(data) => {
+                        telemetry.utc = seconds_since_epoch();
+
                         telemetry.speed = Some(data.vehicle_speed);
                         telemetry.ext_temp = Some(data.outdoor_temp);
                         telemetry.cabin_temp = Some(data.indoor_temp);
                     },
                     obd_data::Data::Dashboard(data) => {
+                        telemetry.utc = seconds_since_epoch();
+
                         telemetry.odometer = Some((data.odometer as f32 * 1.609344) as u32);
                     },
                     obd_data::Data::Shifter(data) => {
+                        telemetry.utc = seconds_since_epoch();
+
                         telemetry.is_parked = data.gear == Gear::Park;
                     },
                     _ => {},
@@ -284,7 +303,7 @@ async fn update_location(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
         }
         if let Some(location) = current_location.take() {
             let mut telemetry = telemetry.lock().await;
-            telemetry.utc = Some(location.unix_timestamp_seconds);
+            telemetry.utc = seconds_since_epoch();
             telemetry.lat = Some(location.latitude);
             telemetry.lon = Some(location.longitude);
             telemetry.heading = Some(location.bearing);
@@ -298,17 +317,16 @@ async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
     let mut interval = time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
-    let mut last_sent_time = i64::default();
+    let mut last_sent_time = u64::default();
 
     loop {
         interval.tick().await;
         let telemetry = {
             let telemetry = telemetry.lock().await;
-            if telemetry.utc.is_none() || telemetry.utc.unwrap() == last_sent_time {
-                println!("[ABRP] Skipping useless update: {}", serde_json::to_string(&*telemetry)?);
+            if telemetry.utc == 0 || telemetry.utc == last_sent_time {
                 continue;
             }
-            last_sent_time = telemetry.utc.unwrap();
+            last_sent_time = telemetry.utc;
             serde_json::to_string(&*telemetry)?
         };
 
