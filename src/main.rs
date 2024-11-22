@@ -185,43 +185,50 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
 }
 
 async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
-    while let Ok((forwarded_data, _raw)) = rx.recv().await {
-        let mut telemetry = telemetry.lock().await;
-        match forwarded_data {
-            obd_data::Data::Battery01(data) => {
-                telemetry.power = Some(data.battery_power);
-                telemetry.is_charging = Some(data.charging != ChargingType::NotCharging);
-                telemetry.is_dcfc = Some(data.charging == ChargingType::DC);
-                telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
-                telemetry.voltage = Some(data.battery_voltage);
-                telemetry.current = Some(data.battery_current);
+    loop {
+        match rx.recv().await {
+            Ok((forwarded_data, _raw)) => {
+                let mut telemetry = telemetry.lock().await;
+                match forwarded_data {
+                    obd_data::Data::Battery01(data) => {
+                        telemetry.power = Some(data.battery_power);
+                        telemetry.is_charging = Some(data.charging != ChargingType::NotCharging);
+                        telemetry.is_dcfc = Some(data.charging == ChargingType::DC);
+                        telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
+                        telemetry.voltage = Some(data.battery_voltage);
+                        telemetry.current = Some(data.battery_current);
+                    },
+                    obd_data::Data::Battery05(data) => {
+                        telemetry.soc = Some(data.soc);
+                        telemetry.soh = Some(data.soh);
+                        telemetry.soe = Some(data.remaining_energy / 1000.0);
+                    },
+                    obd_data::Data::TirePressures(data) => {
+                        telemetry.tire_pressure_fl = Some(data.front_left_psi * 6.89476);
+                        telemetry.tire_pressure_fr = Some(data.front_right_psi * 6.89476);
+                        telemetry.tire_pressure_rl = Some(data.rear_left_psi * 6.89476);
+                        telemetry.tire_pressure_rr = Some(data.rear_right_psi * 6.89476);
+                    },
+                    obd_data::Data::HVAC(data) => {
+                        telemetry.speed = Some(data.vehicle_speed);
+                        telemetry.ext_temp = Some(data.outdoor_temp);
+                        telemetry.cabin_temp = Some(data.indoor_temp);
+                    },
+                    obd_data::Data::Dashboard(data) => {
+                        telemetry.odometer = Some((data.odometer as f32 * 1.609344) as u32);
+                    },
+                    obd_data::Data::Shifter(data) => {
+                        telemetry.is_parked = Some(data.gear == Gear::Park);
+                    },
+                    _ => {},
+                };
             },
-            obd_data::Data::Battery05(data) => {
-                telemetry.soc = Some(data.soc);
-                telemetry.soh = Some(data.soh);
-                telemetry.soe = Some(data.remaining_energy / 1000.0);
+            Err(broadcast::error::RecvError::Lagged(lag_count)) => {
+                println!("Telemetry updater lagged by {} message(s)", lag_count);
             },
-            obd_data::Data::TirePressures(data) => {
-                telemetry.tire_pressure_fl = Some(data.front_left_psi * 6.89476);
-                telemetry.tire_pressure_fr = Some(data.front_right_psi * 6.89476);
-                telemetry.tire_pressure_rl = Some(data.rear_left_psi * 6.89476);
-                telemetry.tire_pressure_rr = Some(data.rear_right_psi * 6.89476);
-            },
-            obd_data::Data::HVAC(data) => {
-                telemetry.speed = Some(data.vehicle_speed);
-                telemetry.ext_temp = Some(data.outdoor_temp);
-                telemetry.cabin_temp = Some(data.indoor_temp);
-            },
-            obd_data::Data::Dashboard(data) => {
-                telemetry.odometer = Some((data.odometer as f32 * 1.609344) as u32);
-            },
-            obd_data::Data::Shifter(data) => {
-                telemetry.is_parked = Some(data.gear == Gear::Park);
-            },
-            _ => {},
-        };
+            Err(err) => anyhow::bail!(err),
+        }
     }
-    Ok(())
 }
 
 async fn update_location(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
