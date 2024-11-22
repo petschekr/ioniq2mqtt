@@ -46,8 +46,7 @@ struct Telemetry {
     is_charging: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     is_dcfc: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    is_parked: Option<bool>,
+    is_parked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     soe: Option<f32>, // kWh, usable energy of battery
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -85,7 +84,10 @@ async fn main() {
     let (tx, rx) = broadcast::channel::<(obd_data::Data, String)>(16);
     let telemetry_update_rx = tx.subscribe();
 
-    let telemetry = Arc::new(Mutex::new(Telemetry::default()));
+    let telemetry = Arc::new(Mutex::new(Telemetry {
+        is_parked: true,
+        ..Telemetry::default()
+    }));
 
     let mut tasks = vec![];
 
@@ -218,7 +220,7 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, t
                         telemetry.odometer = Some((data.odometer as f32 * 1.609344) as u32);
                     },
                     obd_data::Data::Shifter(data) => {
-                        telemetry.is_parked = Some(data.gear == Gear::Park);
+                        telemetry.is_parked = data.gear == Gear::Park;
                     },
                     _ => {},
                 };
@@ -303,6 +305,7 @@ async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
         let telemetry = {
             let telemetry = telemetry.lock().await;
             if telemetry.utc.is_none() || telemetry.utc.unwrap() == last_sent_time {
+                println!("[ABRP] Skipping useless update: {}", serde_json::to_string(&*telemetry)?);
                 continue;
             }
             last_sent_time = telemetry.utc.unwrap();
