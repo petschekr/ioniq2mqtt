@@ -149,3 +149,33 @@ impl<'a> HASSBinarySensor<'a> {
         topic_components.join("/")
     }
 }
+
+#[derive(Serialize, Debug)]
+pub struct HASSDeviceTracker<'a> {
+    #[serde(skip)]
+    id: &'a str,
+    device: HASSDevice<'a>,
+    json_attributes_topic: String,
+    name: String,
+    unique_id: String,
+}
+impl<'a> HASSDeviceTracker<'a> {
+    pub fn new(name: &'a str, id: &'a str, topic_root: &'a str) -> Self {
+        Self {
+            id,
+            device: IONIQ_5,
+            name: name.into(),
+            unique_id: format!("ioniq_{}", id),
+            json_attributes_topic: format!("homeassistant/device_tracker/{}/state", topic_root),
+        }
+    }
+
+    pub fn config_topic(&self) -> String {
+        let mut topic_components: Vec<_> = self.json_attributes_topic.split("/").collect();
+        topic_components.pop();
+        topic_components.pop();
+        topic_components.push(self.id);
+        topic_components.push("config");
+        topic_components.join("/")
+    }
+}

@@ -563,6 +563,11 @@ pub struct Panda {
     pub panda_aux_battery_current: f32,
     pub panda_fan_speed: u16,
 }
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Location {
+    pub longitude: f64,
+    pub latitude: f64,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Data {
@@ -585,4 +590,5 @@ pub enum Data {
     CabinEnvironment(CabinEnvironment),
     Shifter(Shifter),
     Panda(Panda),
+    Location(Location),
 }

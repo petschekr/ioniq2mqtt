@@ -13,7 +13,7 @@ use futures::StreamExt;
 use rumqttc::{AsyncClient, MqttOptions, QoS, TlsConfiguration, Transport};
 use serde::Serialize;
 use crate::obd_data::{ChargingType, Gear, Process};
-use crate::hass::{ HASSSensor, HASSBinarySensor };
+use crate::hass::{HASSSensor, HASSBinarySensor, HASSDeviceTracker};
 
 mod log_capnp {
     include!(concat!(env!("OUT_DIR"), "/log_capnp.rs"));
@@ -100,10 +100,11 @@ async fn main() {
 
     tasks.push(tokio::spawn(update_can(tx.clone())));
     tasks.push(tokio::spawn(update_panda_info(tx.clone())));
-    tasks.push(tokio::spawn(mqtt(rx)));
+    tasks.push(tokio::spawn(update_location(tx.clone(), telemetry.clone())));
+
     tasks.push(tokio::spawn(update_telemetry_with_can(telemetry_update_rx, telemetry.clone())));
-    tasks.push(tokio::spawn(update_location(telemetry.clone())));
     tasks.push(tokio::spawn(abrp(telemetry.clone())));
+    tasks.push(tokio::spawn(mqtt(rx)));
 
     let errored = futures::future::select_all(tasks).await;
     println!("A task exited!!");
@@ -253,7 +254,7 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, t
     }
 }
 
-async fn update_location(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
+async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
         .connect("tcp://127.0.0.1:30590")? // Port for "gpsLocation"
         .subscribe(&[])?;
@@ -297,6 +298,12 @@ async fn update_location(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
 
                     if location.has_fix && location.unix_timestamp_seconds > 0 {
                         current_location.replace(location);
+
+                        let mqtt_data = obd_data::Location {
+                            latitude: location_data.get_latitude(),
+                            longitude: location_data.get_longitude(),
+                        };
+                        tx.send((obd_data::Data::Location(mqtt_data), String::new()))?;
                     }
                 },
                 _ => {},
@@ -538,6 +545,8 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
     for binary_sensor in binary_sensors.iter() {
         client.publish(binary_sensor.config_topic(), QoS::AtLeastOnce, true, serde_json::to_vec(binary_sensor)?).await?;
     }
+    let device_tracker = HASSDeviceTracker::new("Location", "location", "ioniq/location");
+    client.publish(device_tracker.config_topic(), QoS::AtLeastOnce, true, serde_json::to_vec(&device_tracker)?).await?;
 
     loop {
         match rx.recv().await {
@@ -569,6 +578,10 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
                     },
                     obd_data::Data::Panda(data) => {
                         client.publish("homeassistant/sensor/ioniq/panda/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
+                        continue;
+                    },
+                    obd_data::Data::Location(data) => {
+                        client.publish("homeassistant/device_tracker/ioniq/location/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
                         continue;
                     },
                 };
