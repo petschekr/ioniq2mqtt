@@ -259,20 +259,7 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mu
         .connect("tcp://127.0.0.1:30590")? // Port for "gpsLocation"
         .subscribe(&[])?;
 
-    #[derive(Debug)]
-    struct Location {
-        latitude: f64,
-        longitude: f64,
-        altitude: f64,
-        speed: f32,
-        bearing: f32,
-        unix_timestamp_seconds: i64,
-        vertical_accuracy: f32,
-        bearing_accuracy: f32,
-        speed_accuracy: f32,
-        has_fix: bool,
-    }
-    let mut current_location: Option<Location> = None;
+    let mut current_location: Option<obd_data::Location> = None;
 
     while let Some(messages) = socket.next().await {
         for message in messages? {
@@ -283,7 +270,7 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mu
             let event = message_reader.get_root::<log_capnp::event::Reader>()?;
             match event.which()? {
                 log_capnp::event::GpsLocation(Ok(location_data)) => {
-                    let location = Location {
+                    let location = obd_data::Location {
                         latitude: location_data.get_latitude(),
                         longitude: location_data.get_longitude(),
                         altitude: location_data.get_altitude(),
@@ -297,13 +284,11 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mu
                     };
 
                     if location.has_fix && location.unix_timestamp_seconds > 0 {
-                        current_location.replace(location);
+                        // Can't lock the async mutex here because something in the Capnp reader is not Send
+                        // So put it in an Option<> and update the mutex later
+                        current_location.replace(location.clone());
 
-                        let mqtt_data = obd_data::Location {
-                            latitude: location_data.get_latitude(),
-                            longitude: location_data.get_longitude(),
-                        };
-                        tx.send((obd_data::Data::Location(mqtt_data), String::new()))?;
+                        tx.send((obd_data::Data::Location(location), String::new()))?;
                     }
                 },
                 _ => {},
@@ -427,17 +412,17 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
     });
 
     let sensors = [
-        HASSSensor::new("Charging Type", "charging", "enum", "ioniq/batterydata1"),
+        HASSSensor::new("Charging Type", "charging", "enum", "ioniq/batterydata1").dont_expire(),
         HASSSensor::new("Aux Battery", "aux_battery_voltage", "voltage", "ioniq/batterydata1").with_unit("V").measurement(),
-        HASSSensor::new("BMS SOC", "bms_soc", "battery", "ioniq/batterydata1").with_unit("%").measurement(),
+        HASSSensor::new("BMS SOC", "bms_soc", "battery", "ioniq/batterydata1").with_unit("%").dont_expire().measurement(),
         HASSSensor::new("Battery Current", "battery_current", "current", "ioniq/batterydata1").with_unit("A").measurement(),
         HASSSensor::new("Battery Voltage", "battery_voltage", "voltage", "ioniq/batterydata1").with_unit("V").measurement(),
         HASSSensor::new("Battery Power", "battery_power", "power", "ioniq/batterydata1").with_unit("kW").measurement(),
         HASSSensor::new("Fan Status", "fan_status", "", "ioniq/batterydata1").measurement(),
         HASSSensor::new("Fan Speed", "fan_speed", "frequency", "ioniq/batterydata1").with_unit("Hz").measurement(),
-        HASSSensor::new("Cumulative Energy Charged", "cumulative_energy_charged", "energy", "ioniq/batterydata1").with_unit("kWh").total_increasing(),
-        HASSSensor::new("Cumulative Energy Discharged", "cumulative_energy_discharged", "energy", "ioniq/batterydata1").with_unit("kWh").total_increasing(),
-        HASSSensor::new("Cumulative Operating Time", "cumulative_operating_time", "duration", "ioniq/batterydata1").with_unit("s").total_increasing(),
+        HASSSensor::new("Cumulative Energy Charged", "cumulative_energy_charged", "energy", "ioniq/batterydata1").with_unit("kWh").dont_expire().total_increasing(),
+        HASSSensor::new("Cumulative Energy Discharged", "cumulative_energy_discharged", "energy", "ioniq/batterydata1").with_unit("kWh").dont_expire().total_increasing(),
+        HASSSensor::new("Cumulative Operating Time", "cumulative_operating_time", "duration", "ioniq/batterydata1").with_unit("s").dont_expire().total_increasing(),
         HASSSensor::new("DC Battery Inlet Temperature", "dc_battery_inlet_temp", "temperature", "ioniq/batterydata1").with_unit("C").measurement(),
         HASSSensor::new("DC Battery Max Temperature", "dc_battery_max_temp", "temperature", "ioniq/batterydata1").with_unit("C").measurement(),
         HASSSensor::new("DC Battery Min Temperature", "dc_battery_min_temp", "temperature", "ioniq/batterydata1").with_unit("C").measurement(),
@@ -456,10 +441,10 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Battery Heater 2 Temperature", "battery_heater_2_temp", "temperature", "ioniq/batterydata5").with_unit("C").measurement(),
         HASSSensor::new("Remaining Energy", "remaining_energy", "energy_storage", "ioniq/batterydata5").with_unit("Wh").measurement(),
 
-        HASSSensor::new("AC Charging Events", "ac_charging_events", "", "ioniq/batterydata11").total_increasing(),
-        HASSSensor::new("DC Charging Events", "dc_charging_events", "", "ioniq/batterydata11").total_increasing(),
-        HASSSensor::new("Cumulative AC Charging Energy", "cumulative_ac_charging_energy", "energy", "ioniq/batterydata11").with_unit("kWh").total_increasing(),
-        HASSSensor::new("Cumulative DC Charging Energy", "cumulative_dc_charging_energy", "energy", "ioniq/batterydata11").with_unit("kWh").total_increasing(),
+        HASSSensor::new("AC Charging Events", "ac_charging_events", "", "ioniq/batterydata11").dont_expire().total_increasing(),
+        HASSSensor::new("DC Charging Events", "dc_charging_events", "", "ioniq/batterydata11").dont_expire().total_increasing(),
+        HASSSensor::new("Cumulative AC Charging Energy", "cumulative_ac_charging_energy", "energy", "ioniq/batterydata11").with_unit("kWh").dont_expire().total_increasing(),
+        HASSSensor::new("Cumulative DC Charging Energy", "cumulative_dc_charging_energy", "energy", "ioniq/batterydata11").with_unit("kWh").dont_expire().total_increasing(),
 
         HASSSensor::new("Front Left Tire Pressure", "front_left_psi", "pressure", "ioniq/tirepressures").with_unit("psi").measurement(),
         HASSSensor::new("Front Left Tire Temperature", "front_left_temp", "temperature", "ioniq/tirepressures").with_unit("C").measurement(),

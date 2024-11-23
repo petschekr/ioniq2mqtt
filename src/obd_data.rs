@@ -565,8 +565,16 @@ pub struct Panda {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Location {
-    pub longitude: f64,
     pub latitude: f64,
+    pub longitude: f64,
+    pub altitude: f64,
+    pub speed: f32,
+    pub bearing: f32,
+    pub unix_timestamp_seconds: i64,
+    pub vertical_accuracy: f32,
+    pub bearing_accuracy: f32,
+    pub speed_accuracy: f32,
+    pub has_fix: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
