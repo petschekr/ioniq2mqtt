@@ -83,6 +83,18 @@ fn seconds_since_epoch() -> u64 {
         .unwrap_or(0)
 }
 
+fn get_port(endpoint: &str) -> u16 {
+    const START_PORT: u16 = 8023;
+    const MAX_PORT: u16 = 65535;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let mut hash_value = 0xcbf29ce484222325;
+    for c in endpoint.chars() {
+        hash_value ^= c as u64;
+        hash_value = hash_value.wrapping_mul(FNV_PRIME);
+    }
+    START_PORT + (hash_value % (MAX_PORT - START_PORT) as u64) as u16
+}
+
 #[tokio::main]
 async fn main() {
     let (tx, rx) = broadcast::channel::<(obd_data::Data, String)>(16);
@@ -256,7 +268,7 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, t
 
 async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
-        .connect("tcp://127.0.0.1:30590")? // Port for "gpsLocation"
+        .connect(&format!("tcp://127.0.0.1:{}", get_port("gpsLocation")))?
         .subscribe(&[])?;
 
     let mut current_location: Option<obd_data::Location> = None;
@@ -308,7 +320,7 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mu
 
 async fn update_panda_info(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
-        .connect("tcp://127.0.0.1:35884")? // Port for "peripheralState"
+        .connect(&format!("tcp://127.0.0.1:{}", get_port("peripheralState")))?
         .subscribe(&[])?;
 
     let mut last_peripheral_state = Instant::now();
