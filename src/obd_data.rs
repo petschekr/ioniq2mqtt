@@ -4,8 +4,9 @@ pub trait Process {
     fn process(data: &[u8]) -> Option<Data>;
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Default)]
 pub enum ChargingType {
+    #[default]
     NotCharging,
     AC,
     DC,

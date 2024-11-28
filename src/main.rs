@@ -9,7 +9,7 @@ use anyhow::Result;
 use tokio::sync::broadcast::{self, Sender, Receiver};
 use tokio::sync::Mutex;
 use tokio::time;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use rumqttc::{AsyncClient, MqttOptions, QoS, TlsConfiguration, Transport};
 use serde::Serialize;
 use crate::obd_data::{ChargingType, Gear, Process};
@@ -76,6 +76,24 @@ struct ABRPTelemetry {
     tire_pressure_rr: Option<f32>, // kPa
 }
 
+#[derive(Debug, Default)]
+struct CommaUITelemetry {
+    altitude_msl: f64,
+
+    charging_type: ChargingType,
+    voltage: f32,
+    current: f32,
+    max_temp: i8,
+    min_temp: i8,
+    inlet_temp: i8,
+    heater_temp: i8,
+
+    remaining_energy: f32,
+    soc_display: f32,
+    available_charge_power: f32,
+    available_discharge_power: f32,
+}
+
 fn seconds_since_epoch() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -98,7 +116,7 @@ fn get_port(endpoint: &str) -> u16 {
 #[tokio::main]
 async fn main() {
     let (tx, rx) = broadcast::channel::<(obd_data::Data, String)>(16);
-    let abrp_telemetry_update_rx = tx.subscribe();
+    let telemetry_update_rx = tx.subscribe();
 
     let abrp_telemetry = Arc::new(Mutex::new(ABRPTelemetry {
         utc: 0,
@@ -107,15 +125,16 @@ async fn main() {
         is_dcfc: false,
         ..ABRPTelemetry::default()
     }));
+    let comma_telemetry = Arc::new(Mutex::new(CommaUITelemetry::default()));
 
     let mut tasks = vec![];
 
     tasks.push(tokio::spawn(update_can(tx.clone())));
     tasks.push(tokio::spawn(update_panda_info(tx.clone())));
-    tasks.push(tokio::spawn(update_location(tx.clone(), abrp_telemetry.clone())));
+    tasks.push(tokio::spawn(update_location(tx.clone(), abrp_telemetry.clone(), comma_telemetry.clone())));
+    tasks.push(tokio::spawn(update_telemetry_with_can(telemetry_update_rx, abrp_telemetry.clone(), comma_telemetry.clone())));
 
-    tasks.push(tokio::spawn(update_telemetry_with_can(abrp_telemetry_update_rx, abrp_telemetry.clone())));
-
+    tasks.push(tokio::spawn(comma_ui(comma_telemetry.clone())));
     tasks.push(tokio::spawn(abrp(abrp_telemetry.clone())));
     tasks.push(tokio::spawn(mqtt(rx)));
 
@@ -208,56 +227,79 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
     Ok(())
 }
 
-async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, abrp_telemetry: Arc<Mutex<ABRPTelemetry>>) -> Result<()> {
+async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, abrp_telemetry: Arc<Mutex<ABRPTelemetry>>, comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
     loop {
         match rx.recv().await {
             Ok((forwarded_data, _raw)) => {
-                let mut abrp_telemetry = abrp_telemetry.lock().await;
-                match forwarded_data {
-                    obd_data::Data::Battery01(data) => {
-                        abrp_telemetry.utc = seconds_since_epoch();
+                {
+                    let mut abrp_telemetry = abrp_telemetry.lock().await;
+                    match &forwarded_data {
+                        obd_data::Data::Battery01(data) => {
+                            abrp_telemetry.utc = seconds_since_epoch();
 
-                        abrp_telemetry.power = Some(data.battery_power);
-                        abrp_telemetry.is_charging = data.charging != ChargingType::NotCharging;
-                        abrp_telemetry.is_dcfc = data.charging == ChargingType::DC;
-                        abrp_telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
-                        abrp_telemetry.voltage = Some(data.battery_voltage);
-                        abrp_telemetry.current = Some(data.battery_current);
-                    },
-                    obd_data::Data::Battery05(data) => {
-                        abrp_telemetry.utc = seconds_since_epoch();
+                            abrp_telemetry.power = Some(data.battery_power);
+                            abrp_telemetry.is_charging = data.charging != ChargingType::NotCharging;
+                            abrp_telemetry.is_dcfc = data.charging == ChargingType::DC;
+                            abrp_telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
+                            abrp_telemetry.voltage = Some(data.battery_voltage);
+                            abrp_telemetry.current = Some(data.battery_current);
+                        },
+                        obd_data::Data::Battery05(data) => {
+                            abrp_telemetry.utc = seconds_since_epoch();
 
-                        abrp_telemetry.soc = Some(data.soc);
-                        abrp_telemetry.soh = Some(data.soh);
-                        abrp_telemetry.soe = Some(data.remaining_energy / 1000.0);
-                    },
-                    obd_data::Data::TirePressures(data) => {
-                        abrp_telemetry.utc = seconds_since_epoch();
+                            abrp_telemetry.soc = Some(data.soc);
+                            abrp_telemetry.soh = Some(data.soh);
+                            abrp_telemetry.soe = Some(data.remaining_energy / 1000.0);
+                        },
+                        obd_data::Data::TirePressures(data) => {
+                            abrp_telemetry.utc = seconds_since_epoch();
 
-                        abrp_telemetry.tire_pressure_fl = Some(data.front_left_psi * 6.89476);
-                        abrp_telemetry.tire_pressure_fr = Some(data.front_right_psi * 6.89476);
-                        abrp_telemetry.tire_pressure_rl = Some(data.rear_left_psi * 6.89476);
-                        abrp_telemetry.tire_pressure_rr = Some(data.rear_right_psi * 6.89476);
-                    },
-                    obd_data::Data::HVAC(data) => {
-                        abrp_telemetry.utc = seconds_since_epoch();
+                            abrp_telemetry.tire_pressure_fl = Some(data.front_left_psi * 6.89476);
+                            abrp_telemetry.tire_pressure_fr = Some(data.front_right_psi * 6.89476);
+                            abrp_telemetry.tire_pressure_rl = Some(data.rear_left_psi * 6.89476);
+                            abrp_telemetry.tire_pressure_rr = Some(data.rear_right_psi * 6.89476);
+                        },
+                        obd_data::Data::HVAC(data) => {
+                            abrp_telemetry.utc = seconds_since_epoch();
 
-                        abrp_telemetry.speed = Some(data.vehicle_speed);
-                        abrp_telemetry.ext_temp = Some(data.outdoor_temp);
-                        abrp_telemetry.cabin_temp = Some(data.indoor_temp);
-                    },
-                    obd_data::Data::Dashboard(data) => {
-                        abrp_telemetry.utc = seconds_since_epoch();
+                            abrp_telemetry.speed = Some(data.vehicle_speed);
+                            abrp_telemetry.ext_temp = Some(data.outdoor_temp);
+                            abrp_telemetry.cabin_temp = Some(data.indoor_temp);
+                        },
+                        obd_data::Data::Dashboard(data) => {
+                            abrp_telemetry.utc = seconds_since_epoch();
 
-                        abrp_telemetry.odometer = Some((data.odometer as f32 * 1.609344) as u32);
-                    },
-                    obd_data::Data::Shifter(data) => {
-                        abrp_telemetry.utc = seconds_since_epoch();
+                            abrp_telemetry.odometer = Some((data.odometer as f32 * 1.609344) as u32);
+                        },
+                        obd_data::Data::Shifter(data) => {
+                            abrp_telemetry.utc = seconds_since_epoch();
 
-                        abrp_telemetry.is_parked = data.gear == Gear::Park;
-                    },
-                    _ => {},
-                };
+                            abrp_telemetry.is_parked = data.gear == Gear::Park;
+                        },
+                        _ => {},
+                    };
+                }
+                {
+                    let mut comma_telemetry = comma_telemetry.lock().await;
+                    match &forwarded_data {
+                        obd_data::Data::Battery01(data) => {
+                            comma_telemetry.charging_type = data.charging.clone();
+                            comma_telemetry.voltage = data.battery_voltage;
+                            comma_telemetry.current = data.battery_current;
+                            comma_telemetry.max_temp = data.dc_battery_max_temp;
+                            comma_telemetry.min_temp = data.dc_battery_min_temp;
+                            comma_telemetry.inlet_temp = data.dc_battery_inlet_temp;
+                        },
+                        obd_data::Data::Battery05(data) => {
+                            comma_telemetry.heater_temp = data.battery_heater_1_temp;
+                            comma_telemetry.remaining_energy = data.remaining_energy;
+                            comma_telemetry.soc_display = data.soc;
+                            comma_telemetry.available_charge_power = data.available_charge_power;
+                            comma_telemetry.available_discharge_power = data.available_discharge_power;
+                        },
+                        _ => {},
+                    }
+                }
             },
             Err(broadcast::error::RecvError::Lagged(lag_count)) => {
                 println!("Telemetry updater lagged by {} message(s)", lag_count);
@@ -267,7 +309,7 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
     }
 }
 
-async fn update_location(tx: Sender<(obd_data::Data, String)>, abrp_telemetry: Arc<Mutex<ABRPTelemetry>>) -> Result<()> {
+async fn update_location(tx: Sender<(obd_data::Data, String)>, abrp_telemetry: Arc<Mutex<ABRPTelemetry>>, comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
         .connect(&format!("tcp://127.0.0.1:{}", get_port("gpsLocation")))?
         .subscribe(&[])?;
@@ -310,12 +352,18 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, abrp_telemetry: A
             }
         }
         if let Some(location) = current_location.take() {
-            let mut abrp_telemetry = abrp_telemetry.lock().await;
-            abrp_telemetry.utc = seconds_since_epoch();
-            abrp_telemetry.lat = Some(location.latitude);
-            abrp_telemetry.lon = Some(location.longitude);
-            abrp_telemetry.heading = Some(location.bearing);
-            abrp_telemetry.elevation = Some(location.altitude);
+            {
+                let mut abrp_telemetry = abrp_telemetry.lock().await;
+                abrp_telemetry.utc = seconds_since_epoch();
+                abrp_telemetry.lat = Some(location.latitude);
+                abrp_telemetry.lon = Some(location.longitude);
+                abrp_telemetry.heading = Some(location.bearing);
+                abrp_telemetry.elevation = Some(location.altitude);
+            }
+            {
+                let mut comma_telemetry = comma_telemetry.lock().await;
+                comma_telemetry.altitude_msl = location.altitude;
+            }
         }
     }
     Ok(())
@@ -393,6 +441,53 @@ async fn abrp(abrp_telemetry: Arc<Mutex<ABRPTelemetry>>) -> Result<()> {
             dbg!(&abrp_telemetry);
             dbg!(&response_body);
         }
+    }
+}
+
+async fn comma_ui(comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
+    let start_time = Instant::now();
+    let mut socket = tmq::publish(&Context::new())
+        .bind(&format!("tcp://127.0.0.1:{}", get_port("ioniq")))?;
+
+    let mut interval = time::interval(Duration::from_millis(250));
+    interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+
+    loop {
+        interval.tick().await;
+        let comma_telemetry = comma_telemetry.lock().await;
+
+        let mut message = ::capnp::message::Builder::new_default();
+        {
+            let mut event = message.init_root::<log_capnp::event::Builder>();
+
+            event.set_valid(true);
+            event.set_log_mono_time(start_time.elapsed().as_nanos() as u64);
+
+            let mut ioniq = event.init_ioniq();
+
+            ioniq.set_altitude_msl(comma_telemetry.altitude_msl);
+            ioniq.set_charging_type(match comma_telemetry.charging_type {
+                ChargingType::NotCharging => custom_capnp::ioniq::ChargingType::NotCharging,
+                ChargingType::AC => custom_capnp::ioniq::ChargingType::Ac,
+                ChargingType::DC => custom_capnp::ioniq::ChargingType::Dc,
+                ChargingType::Other => custom_capnp::ioniq::ChargingType::Other,
+            });
+            ioniq.set_voltage(comma_telemetry.voltage);
+            ioniq.set_current(comma_telemetry.current);
+            ioniq.set_max_temp(comma_telemetry.max_temp);
+            ioniq.set_min_temp(comma_telemetry.min_temp);
+            ioniq.set_inlet_temp(comma_telemetry.inlet_temp);
+            ioniq.set_heater_temp(comma_telemetry.heater_temp);
+            ioniq.set_remaining_energy(comma_telemetry.remaining_energy);
+            ioniq.set_soc_display(comma_telemetry.soc_display);
+            ioniq.set_available_charge_power(comma_telemetry.available_charge_power);
+            ioniq.set_available_discharge_power(comma_telemetry.available_discharge_power);
+        }
+
+        let mut serialized = Vec::new();
+        serialize::write_message(&mut serialized, &message)?;
+
+        socket.send(vec!["ioniq".as_bytes(), &serialized]).await?;
     }
 }
 
