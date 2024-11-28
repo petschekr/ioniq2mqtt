@@ -282,7 +282,7 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mu
             let event = message_reader.get_root::<log_capnp::event::Reader>()?;
             match event.which()? {
                 log_capnp::event::GpsLocation(Ok(location_data)) => {
-                    let location = obd_data::Location {
+                    let mut location = obd_data::Location {
                         latitude: location_data.get_latitude(),
                         longitude: location_data.get_longitude(),
                         altitude: location_data.get_altitude(),
@@ -294,6 +294,8 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mu
                         speed_accuracy: location_data.get_speed_accuracy(),
                         has_fix: location_data.get_has_fix(),
                     };
+                    // Compute MSL altitude from WGS-84 height-above-ellipsoid
+                    location.altitude = egm2008::geoid_height(location.latitude as f32, location.longitude as f32)? as f64;
 
                     if location.has_fix && location.unix_timestamp_seconds > 0 {
                         // Can't lock the async mutex here because something in the Capnp reader is not Send
