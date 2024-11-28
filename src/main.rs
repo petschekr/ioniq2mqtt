@@ -29,7 +29,7 @@ mod legacy_capnp {
 }
 
 #[derive(Serialize, Debug, Default)]
-struct Telemetry {
+struct ABRPTelemetry {
     utc: u64, // Seconds
     #[serde(skip_serializing_if = "Option::is_none")]
     soc: Option<f32>, // From display
@@ -98,24 +98,25 @@ fn get_port(endpoint: &str) -> u16 {
 #[tokio::main]
 async fn main() {
     let (tx, rx) = broadcast::channel::<(obd_data::Data, String)>(16);
-    let telemetry_update_rx = tx.subscribe();
+    let abrp_telemetry_update_rx = tx.subscribe();
 
-    let telemetry = Arc::new(Mutex::new(Telemetry {
+    let abrp_telemetry = Arc::new(Mutex::new(ABRPTelemetry {
         utc: 0,
         is_parked: true,
         is_charging: false,
         is_dcfc: false,
-        ..Telemetry::default()
+        ..ABRPTelemetry::default()
     }));
 
     let mut tasks = vec![];
 
     tasks.push(tokio::spawn(update_can(tx.clone())));
     tasks.push(tokio::spawn(update_panda_info(tx.clone())));
-    tasks.push(tokio::spawn(update_location(tx.clone(), telemetry.clone())));
+    tasks.push(tokio::spawn(update_location(tx.clone(), abrp_telemetry.clone())));
 
-    tasks.push(tokio::spawn(update_telemetry_with_can(telemetry_update_rx, telemetry.clone())));
-    tasks.push(tokio::spawn(abrp(telemetry.clone())));
+    tasks.push(tokio::spawn(update_telemetry_with_can(abrp_telemetry_update_rx, abrp_telemetry.clone())));
+
+    tasks.push(tokio::spawn(abrp(abrp_telemetry.clone())));
     tasks.push(tokio::spawn(mqtt(rx)));
 
     let errored = futures::future::select_all(tasks).await;
@@ -207,53 +208,53 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
     Ok(())
 }
 
-async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
+async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, abrp_telemetry: Arc<Mutex<ABRPTelemetry>>) -> Result<()> {
     loop {
         match rx.recv().await {
             Ok((forwarded_data, _raw)) => {
-                let mut telemetry = telemetry.lock().await;
+                let mut abrp_telemetry = abrp_telemetry.lock().await;
                 match forwarded_data {
                     obd_data::Data::Battery01(data) => {
-                        telemetry.utc = seconds_since_epoch();
+                        abrp_telemetry.utc = seconds_since_epoch();
 
-                        telemetry.power = Some(data.battery_power);
-                        telemetry.is_charging = data.charging != ChargingType::NotCharging;
-                        telemetry.is_dcfc = data.charging == ChargingType::DC;
-                        telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
-                        telemetry.voltage = Some(data.battery_voltage);
-                        telemetry.current = Some(data.battery_current);
+                        abrp_telemetry.power = Some(data.battery_power);
+                        abrp_telemetry.is_charging = data.charging != ChargingType::NotCharging;
+                        abrp_telemetry.is_dcfc = data.charging == ChargingType::DC;
+                        abrp_telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
+                        abrp_telemetry.voltage = Some(data.battery_voltage);
+                        abrp_telemetry.current = Some(data.battery_current);
                     },
                     obd_data::Data::Battery05(data) => {
-                        telemetry.utc = seconds_since_epoch();
+                        abrp_telemetry.utc = seconds_since_epoch();
 
-                        telemetry.soc = Some(data.soc);
-                        telemetry.soh = Some(data.soh);
-                        telemetry.soe = Some(data.remaining_energy / 1000.0);
+                        abrp_telemetry.soc = Some(data.soc);
+                        abrp_telemetry.soh = Some(data.soh);
+                        abrp_telemetry.soe = Some(data.remaining_energy / 1000.0);
                     },
                     obd_data::Data::TirePressures(data) => {
-                        telemetry.utc = seconds_since_epoch();
+                        abrp_telemetry.utc = seconds_since_epoch();
 
-                        telemetry.tire_pressure_fl = Some(data.front_left_psi * 6.89476);
-                        telemetry.tire_pressure_fr = Some(data.front_right_psi * 6.89476);
-                        telemetry.tire_pressure_rl = Some(data.rear_left_psi * 6.89476);
-                        telemetry.tire_pressure_rr = Some(data.rear_right_psi * 6.89476);
+                        abrp_telemetry.tire_pressure_fl = Some(data.front_left_psi * 6.89476);
+                        abrp_telemetry.tire_pressure_fr = Some(data.front_right_psi * 6.89476);
+                        abrp_telemetry.tire_pressure_rl = Some(data.rear_left_psi * 6.89476);
+                        abrp_telemetry.tire_pressure_rr = Some(data.rear_right_psi * 6.89476);
                     },
                     obd_data::Data::HVAC(data) => {
-                        telemetry.utc = seconds_since_epoch();
+                        abrp_telemetry.utc = seconds_since_epoch();
 
-                        telemetry.speed = Some(data.vehicle_speed);
-                        telemetry.ext_temp = Some(data.outdoor_temp);
-                        telemetry.cabin_temp = Some(data.indoor_temp);
+                        abrp_telemetry.speed = Some(data.vehicle_speed);
+                        abrp_telemetry.ext_temp = Some(data.outdoor_temp);
+                        abrp_telemetry.cabin_temp = Some(data.indoor_temp);
                     },
                     obd_data::Data::Dashboard(data) => {
-                        telemetry.utc = seconds_since_epoch();
+                        abrp_telemetry.utc = seconds_since_epoch();
 
-                        telemetry.odometer = Some((data.odometer as f32 * 1.609344) as u32);
+                        abrp_telemetry.odometer = Some((data.odometer as f32 * 1.609344) as u32);
                     },
                     obd_data::Data::Shifter(data) => {
-                        telemetry.utc = seconds_since_epoch();
+                        abrp_telemetry.utc = seconds_since_epoch();
 
-                        telemetry.is_parked = data.gear == Gear::Park;
+                        abrp_telemetry.is_parked = data.gear == Gear::Park;
                     },
                     _ => {},
                 };
@@ -266,7 +267,7 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, t
     }
 }
 
-async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
+async fn update_location(tx: Sender<(obd_data::Data, String)>, abrp_telemetry: Arc<Mutex<ABRPTelemetry>>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
         .connect(&format!("tcp://127.0.0.1:{}", get_port("gpsLocation")))?
         .subscribe(&[])?;
@@ -309,12 +310,12 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, telemetry: Arc<Mu
             }
         }
         if let Some(location) = current_location.take() {
-            let mut telemetry = telemetry.lock().await;
-            telemetry.utc = seconds_since_epoch();
-            telemetry.lat = Some(location.latitude);
-            telemetry.lon = Some(location.longitude);
-            telemetry.heading = Some(location.bearing);
-            telemetry.elevation = Some(location.altitude);
+            let mut abrp_telemetry = abrp_telemetry.lock().await;
+            abrp_telemetry.utc = seconds_since_epoch();
+            abrp_telemetry.lat = Some(location.latitude);
+            abrp_telemetry.lon = Some(location.longitude);
+            abrp_telemetry.heading = Some(location.bearing);
+            abrp_telemetry.elevation = Some(location.altitude);
         }
     }
     Ok(())
@@ -354,7 +355,7 @@ async fn update_panda_info(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
     Ok(())
 }
 
-async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
+async fn abrp(abrp_telemetry: Arc<Mutex<ABRPTelemetry>>) -> Result<()> {
     let mut interval = time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
@@ -362,13 +363,13 @@ async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
 
     loop {
         interval.tick().await;
-        let telemetry = {
-            let telemetry = telemetry.lock().await;
-            if telemetry.utc == 0 || telemetry.utc == last_sent_time {
+        let abrp_telemetry = {
+            let abrp_telemetry = abrp_telemetry.lock().await;
+            if abrp_telemetry.utc == 0 || abrp_telemetry.utc == last_sent_time {
                 continue;
             }
-            last_sent_time = telemetry.utc;
-            serde_json::to_string(&*telemetry)?
+            last_sent_time = abrp_telemetry.utc;
+            serde_json::to_string(&*abrp_telemetry)?
         };
 
         let client = reqwest::Client::new();
@@ -376,7 +377,7 @@ async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
             .form(&[
                 ("api_key", include_str!("../certs/abrp.apikey").trim()),
                 ("token", include_str!("../certs/abrp.usertoken").trim()),
-                ("tlm", &telemetry),
+                ("tlm", &abrp_telemetry),
             ])
             .timeout(Duration::from_secs(5))
             .send().await;
@@ -389,7 +390,7 @@ async fn abrp(telemetry: Arc<Mutex<Telemetry>>) -> Result<()> {
         };
         let response_body = response.text().await?;
         if response_body != "{\"status\": \"ok\"}" {
-            dbg!(&telemetry);
+            dbg!(&abrp_telemetry);
             dbg!(&response_body);
         }
     }
