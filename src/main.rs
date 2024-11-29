@@ -338,7 +338,8 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, abrp_telemetry: A
                         has_fix: location_data.get_has_fix(),
                     };
                     // Compute MSL altitude from WGS-84 height-above-ellipsoid
-                    location.altitude = egm2008::geoid_height(location.latitude as f32, location.longitude as f32)? as f64;
+                    let msl_correction = egm2008::geoid_height(location.latitude as f32, location.longitude as f32)? as f64;
+                    location.altitude -= msl_correction;
 
                     if location.has_fix && location.unix_timestamp_seconds > 0 {
                         // Can't lock the async mutex here because something in the Capnp reader is not Send
