@@ -235,12 +235,12 @@ impl Process for HVAC {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ICCU01 {
-    ac_maximum_current_limit: f32,
-    dc_maximum_current_limit: f32,
-    dc_target_voltage: f32,
-    v2l_ac_target_voltage: f32,
-    v2l_ac_current_limit: f32,
-    v2l_dc_current_limit: f32,
+    pub ac_maximum_current_limit: f32,
+    pub dc_maximum_current_limit: f32,
+    pub dc_target_voltage: f32,
+    pub v2l_ac_target_voltage: f32,
+    pub v2l_ac_current_limit: f32,
+    pub v2l_dc_current_limit: f32,
 }
 impl Process for ICCU01 {
     fn process(data: &[u8]) -> Option<Data> {
@@ -256,23 +256,23 @@ impl Process for ICCU01 {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ICCU02 {
-    obc_ac_current_a: f32,
-    obc_ac_current_b: f32,
-    obc_ac_frequency: f32,
-    obc_ac_total_current: f32,
-    obc_ac_voltage_a: f32,
-    obc_ac_voltage_b: f32,
-    obc_ac_power: f32,
+    pub obc_ac_current_a: f32,
+    pub obc_ac_current_b: f32,
+    pub obc_ac_frequency: f32,
+    pub obc_ac_total_current: f32,
+    pub obc_ac_voltage_a: f32,
+    pub obc_ac_voltage_b: f32,
+    pub obc_ac_power: f32,
 
-    obc_dc_current_a: f32,
-    obc_dc_current_b: f32,
-    obc_dc_total_current: f32,
-    obc_dc_voltage: f32,
-    obc_dc_power: f32,
-    obc_charging_loss: f32,
+    pub obc_dc_current_a: f32,
+    pub obc_dc_current_b: f32,
+    pub obc_dc_total_current: f32,
+    pub obc_dc_voltage: f32,
+    pub obc_dc_power: f32,
+    pub obc_charging_loss: f32,
 
-    obc_temp_a: i8,
-    obc_temp_b: i8,
+    pub obc_temp_a: i8,
+    pub obc_temp_b: i8,
 }
 impl Process for ICCU02 {
     fn process(data: &[u8]) -> Option<Data> {
@@ -303,8 +303,8 @@ impl Process for ICCU02 {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ICCU03 {
-    obc_dc_target_current: f32,
-    obc_dc_target_voltage: f32,
+    pub obc_dc_target_current: f32,
+    pub obc_dc_target_voltage: f32,
 }
 impl Process for ICCU03 {
     fn process(data: &[u8]) -> Option<Data> {
@@ -316,15 +316,15 @@ impl Process for ICCU03 {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ICCU11 {
-    aux_battery_current: f32,
-    aux_battery_soc: u8,
-    aux_battery_temp: f32,
-    aux_battery_voltage_iccu: f32,
-    ldc_input_voltage: f32,
-    ldc_output_current: f32,
-    ldc_output_voltage: f32,
-    ldc_output_power: f32,
-    ldc_temp: i8,
+    pub aux_battery_current: f32,
+    pub aux_battery_soc: u8,
+    pub aux_battery_temp: f32,
+    pub aux_battery_voltage_iccu: f32,
+    pub ldc_input_voltage: f32,
+    pub ldc_output_current: f32,
+    pub ldc_output_voltage: f32,
+    pub ldc_output_power: f32,
+    pub ldc_temp: i8,
 }
 impl Process for ICCU11 {
     fn process(data: &[u8]) -> Option<Data> {
@@ -345,11 +345,11 @@ impl Process for ICCU11 {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VCMS01 {
-    ac_charging_state: bool, // [17] & bit 2
-    dc_charging_state: bool, // [17] & bit 3
-    aux_battery_voltage_vcms: f32, // [11..13] / 100.0
-    estimated_charging_power: f32, // [28..30] * 10.0 - 50.0
-    v2l_discharging_current: f32, // [27]
+    pub ac_charging_state: bool, // [17] & bit 2
+    pub dc_charging_state: bool, // [17] & bit 3
+    pub aux_battery_voltage_vcms: f32, // [11..13] / 100.0
+    pub estimated_charging_power: f32, // [28..30] * 10.0 - 50.0
+    pub v2l_discharging_current: f32, // [27]
 }
 impl Process for VCMS01 {
     fn process(data: &[u8]) -> Option<Data> {
@@ -365,15 +365,15 @@ impl Process for VCMS01 {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VCMS02 {
-    evse_delivered_power: f32, // [23..25] * 10.0
-    evse_main_power: f32, // [27]
-    evse_max_voltage: f32, // [9..11] / 10.0
-    evse_max_current: f32, // [11..13] / 10.0
-    evse_min_voltage: f32, // [13..15] / 10.0
-    evse_min_current: f32, // [15..17] / 10.0
-    evse_output_voltage: f32, // [17..19] / 10.0
-    evse_output_current: f32, // [19..21] / 10.0
-    evse_max_power: f32, // [25..27] * 10.0
+    pub evse_delivered_power: f32, // [23..25] * 10.0
+    pub evse_main_power: f32, // [27]
+    pub evse_max_voltage: f32, // [9..11] / 10.0
+    pub evse_max_current: f32, // [11..13] / 10.0
+    pub evse_min_voltage: f32, // [13..15] / 10.0
+    pub evse_min_current: f32, // [15..17] / 10.0
+    pub evse_output_voltage: f32, // [17..19] / 10.0
+    pub evse_output_current: f32, // [19..21] / 10.0
+    pub evse_max_power: f32, // [25..27] * 10.0
 }
 impl Process for VCMS02 {
     fn process(data: &[u8]) -> Option<Data> {
@@ -393,24 +393,24 @@ impl Process for VCMS02 {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VCMS03 {
-    ac_charger_current: f32, // [38..40] / 100.0
-    ac_charging_counter: u16, // [30..32]
-    ac_charging_time: u16, // [34..36]
-    ac_charging_time_after_plugin: u16, // [42..44]
-    bms_current_target: f32, // [26..28] / 10.0
-    bms_voltage_target: f32, // [24..26] / 10.0
-    cp_duty_cycle: f32, // [7..9] / 10.0
-    cp_voltage: f32, // [6] / 10.0
-    dc_charging_time: u16, // [36..38]
-    dc_charging_time_after_plugin: u16, // [44..46]
-    dc_max_current: f32, // [40..42] / 100.0
-    dc_charging_counter: u16, // [32..34]
-    ev_max_current: f32, // [22..24] / 10.0
-    ev_max_voltage: f32, // [20..22] / 10.0
-    evse_target_voltage: f32, // [16..18] / 10.0
-    evse_target_current: f32, // [18..20] / 10.0
-    hv_battery_soc: f32, // [15] / 2.0
-    hv_battery_voltage: f32, // [13..15] / 10.0
+    pub ac_charger_current: f32, // [38..40] / 100.0
+    pub ac_charging_counter: u16, // [30..32]
+    pub ac_charging_time: u16, // [34..36]
+    pub ac_charging_time_after_plugin: u16, // [42..44]
+    pub bms_current_target: f32, // [26..28] / 10.0
+    pub bms_voltage_target: f32, // [24..26] / 10.0
+    pub cp_duty_cycle: f32, // [7..9] / 10.0
+    pub cp_voltage: f32, // [6] / 10.0
+    pub dc_charging_time: u16, // [36..38]
+    pub dc_charging_time_after_plugin: u16, // [44..46]
+    pub dc_max_current: f32, // [40..42] / 100.0
+    pub dc_charging_counter: u16, // [32..34]
+    pub ev_max_current: f32, // [22..24] / 10.0
+    pub ev_max_voltage: f32, // [20..22] / 10.0
+    pub evse_target_voltage: f32, // [16..18] / 10.0
+    pub evse_target_current: f32, // [18..20] / 10.0
+    pub hv_battery_soc: f32, // [15] / 2.0
+    pub hv_battery_voltage: f32, // [13..15] / 10.0
 }
 impl Process for VCMS03 {
     fn process(data: &[u8]) -> Option<Data> {
@@ -439,11 +439,11 @@ impl Process for VCMS03 {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VCMS04 {
-    ac_inlet_1_temperature: i8, // [10] - 50
-    main_battery_relay_status: bool, // [4] & bit 2
-    charging_socket_connected: bool, // [4] & bit 1
-    dc_inlet_1_temperature: i8, // [8] - 50,
-    dc_inlet_2_temperature: i8, // [9] - 50,
+    pub ac_inlet_1_temperature: i8, // [10] - 50
+    pub main_battery_relay_status: bool, // [4] & bit 2
+    pub charging_socket_connected: bool, // [4] & bit 1
+    pub dc_inlet_1_temperature: i8, // [8] - 50,
+    pub dc_inlet_2_temperature: i8, // [9] - 50,
 }
 impl Process for VCMS04 {
     fn process(data: &[u8]) -> Option<Data> {
@@ -470,17 +470,17 @@ impl Process for Dashboard {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct IGPM03 {
-    ignition_on: bool,
-    driver_seat_belt: bool,
-    passenger_seat_belt: bool,
-    hood_open: bool,
-    rear_right_door_open: bool,
-    rear_right_door_unlocked: bool,
-    rear_left_door_open: bool,
-    rear_left_door_unlocked: bool,
-    driver_door_open: bool,
-    passenger_door_open: bool,
-    trunk_open: bool,
+    pub ignition_on: bool,
+    pub driver_seat_belt: bool,
+    pub passenger_seat_belt: bool,
+    pub hood_open: bool,
+    pub rear_right_door_open: bool,
+    pub rear_right_door_unlocked: bool,
+    pub rear_left_door_open: bool,
+    pub rear_left_door_unlocked: bool,
+    pub driver_door_open: bool,
+    pub passenger_door_open: bool,
+    pub trunk_open: bool,
 }
 impl Process for IGPM03 {
     fn process(data: &[u8]) -> Option<Data> {
@@ -501,11 +501,11 @@ impl Process for IGPM03 {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct IGPM04 {
-    driver_door_unlocked: bool,
-    passenger_door_unlocked: bool,
-    rear_left_seat_belt: bool,
-    rear_center_seat_belt: bool,
-    rear_right_seat_belt: bool,
+    pub driver_door_unlocked: bool,
+    pub passenger_door_unlocked: bool,
+    pub rear_left_seat_belt: bool,
+    pub rear_center_seat_belt: bool,
+    pub rear_right_seat_belt: bool,
 }
 impl Process for IGPM04 {
     fn process(data: &[u8]) -> Option<Data> {

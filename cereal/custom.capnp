@@ -21,15 +21,22 @@ struct Ioniq @0x81c2f05a394cf4af {
 
     voltage @2 :Float32;
     current @3 :Float32;
-    maxTemp @4 :Int8;
-    minTemp @5 :Int8;
-    inletTemp @6 :Int8;
+    maxBatteryTemp @4 :Int8;
+    minBatteryTemp @5 :Int8;
+    batteryInletTemp @6 :Int8;
     heaterTemp @7 :Int8;
+
+    acInletTemp @12 :Int8;
+    dcInlet1Temp @13 :Int8;
+    dcInlet2Temp @14 :Int8;
 
     remainingEnergy @8 :Float32;
     socDisplay @9 :Float32;
     availableChargePower @10 :Float32;
     availableDischargePower @11 :Float32;
+
+    sunrise @15 :Text;
+    sunset @16 :Text;
 }
 
 struct CustomReserved1 @0xaedffd8f31e7b55d {

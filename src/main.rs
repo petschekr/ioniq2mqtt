@@ -83,15 +83,22 @@ struct CommaUITelemetry {
     charging_type: ChargingType,
     voltage: f32,
     current: f32,
-    max_temp: i8,
-    min_temp: i8,
-    inlet_temp: i8,
+    max_battery_temp: i8,
+    min_battery_temp: i8,
+    battery_inlet_temp: i8,
     heater_temp: i8,
+
+    ac_inlet_temp: i8,
+    dc_inlet_temp1: i8,
+    dc_inlet_temp2: i8,
 
     remaining_energy: f32,
     soc_display: f32,
     available_charge_power: f32,
     available_discharge_power: f32,
+
+    sunrise: String,
+    sunset: String,
 }
 
 fn seconds_since_epoch() -> u64 {
@@ -286,9 +293,9 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                             comma_telemetry.charging_type = data.charging.clone();
                             comma_telemetry.voltage = data.battery_voltage;
                             comma_telemetry.current = data.battery_current;
-                            comma_telemetry.max_temp = data.dc_battery_max_temp;
-                            comma_telemetry.min_temp = data.dc_battery_min_temp;
-                            comma_telemetry.inlet_temp = data.dc_battery_inlet_temp;
+                            comma_telemetry.max_battery_temp = data.dc_battery_max_temp;
+                            comma_telemetry.min_battery_temp = data.dc_battery_min_temp;
+                            comma_telemetry.battery_inlet_temp = data.dc_battery_inlet_temp;
                         },
                         obd_data::Data::Battery05(data) => {
                             comma_telemetry.heater_temp = data.battery_heater_1_temp;
@@ -296,6 +303,11 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                             comma_telemetry.soc_display = data.soc;
                             comma_telemetry.available_charge_power = data.available_charge_power;
                             comma_telemetry.available_discharge_power = data.available_discharge_power;
+                        },
+                        obd_data::Data::VCMS04(data) => {
+                            comma_telemetry.ac_inlet_temp = data.ac_inlet_1_temperature;
+                            comma_telemetry.dc_inlet_temp1 = data.dc_inlet_1_temperature;
+                            comma_telemetry.dc_inlet_temp2 = data.dc_inlet_2_temperature;
                         },
                         _ => {},
                     }
@@ -315,6 +327,12 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, abrp_telemetry: A
         .subscribe(&[])?;
 
     let mut current_location: Option<obd_data::Location> = None;
+    let tz_finder = tzf_rs::DefaultFinder::new();
+    struct Tz {
+        name: String,
+        tz: tzfile::Tz,
+    }
+    let mut tz: Option<Tz> = None;
 
     while let Some(messages) = socket.next().await {
         for message in messages? {
@@ -364,6 +382,29 @@ async fn update_location(tx: Sender<(obd_data::Data, String)>, abrp_telemetry: A
             {
                 let mut comma_telemetry = comma_telemetry.lock().await;
                 comma_telemetry.altitude_msl = location.altitude;
+
+                let date = chrono::DateTime::from_timestamp(location.unix_timestamp_seconds, 0).unwrap_or_default();
+                let sun_times = spa::sunrise_and_set::<spa::StdFloatOps>(date, location.latitude, location.longitude)?;
+
+                let current_tz_name = tz_finder.get_tz_name(location.longitude, location.latitude);
+                if tz.as_ref().is_none_or(|tz| tz.name != current_tz_name) {
+                    tz = Some(Tz {
+                        name: current_tz_name.to_owned(),
+                        tz: tzfile::Tz::named(current_tz_name)?,
+                    });
+                }
+                let tz = tz.as_ref().unwrap(); // tz is always initialized above
+
+                (comma_telemetry.sunrise, comma_telemetry.sunset) = match sun_times {
+                    spa::SunriseAndSet::PolarDay => (String::from("Polar day"), String::from("--:--")),
+                    spa::SunriseAndSet::PolarNight => (String::from("--:--"), String::from("Polar night")),
+                    spa::SunriseAndSet::Daylight(sunrise, sunset) => {
+                        (
+                            sunrise.with_timezone(&&tz.tz).format("%H:%M").to_string(),
+                            sunset.with_timezone(&&tz.tz).format("%H:%M").to_string(),
+                        )
+                    },
+                };
             }
         }
     }
@@ -439,8 +480,8 @@ async fn abrp(abrp_telemetry: Arc<Mutex<ABRPTelemetry>>) -> Result<()> {
         };
         let response_body = response.text().await?;
         if response_body != "{\"status\": \"ok\"}" {
-            dbg!(&abrp_telemetry);
-            dbg!(&response_body);
+            println!("Telemetry: {}", &abrp_telemetry);
+            println!("Response: {}", &response_body);
         }
     }
 }
@@ -475,19 +516,21 @@ async fn comma_ui(comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
             });
             ioniq.set_voltage(comma_telemetry.voltage);
             ioniq.set_current(comma_telemetry.current);
-            ioniq.set_max_temp(comma_telemetry.max_temp);
-            ioniq.set_min_temp(comma_telemetry.min_temp);
-            ioniq.set_inlet_temp(comma_telemetry.inlet_temp);
+            ioniq.set_max_battery_temp(comma_telemetry.max_battery_temp);
+            ioniq.set_min_battery_temp(comma_telemetry.min_battery_temp);
+            ioniq.set_battery_inlet_temp(comma_telemetry.battery_inlet_temp);
             ioniq.set_heater_temp(comma_telemetry.heater_temp);
+            ioniq.set_ac_inlet_temp(comma_telemetry.ac_inlet_temp);
+            ioniq.set_dc_inlet1_temp(comma_telemetry.dc_inlet_temp1);
+            ioniq.set_dc_inlet2_temp(comma_telemetry.dc_inlet_temp2);
             ioniq.set_remaining_energy(comma_telemetry.remaining_energy);
             ioniq.set_soc_display(comma_telemetry.soc_display);
             ioniq.set_available_charge_power(comma_telemetry.available_charge_power);
             ioniq.set_available_discharge_power(comma_telemetry.available_discharge_power);
+            ioniq.set_sunrise(comma_telemetry.sunrise.clone());
+            ioniq.set_sunset(comma_telemetry.sunset.clone());
         }
-
-        let mut serialized = Vec::new();
-        serialize::write_message(&mut serialized, &message)?;
-
+        let serialized = serialize::write_message_to_words(&message);
         socket.send(vec!["ioniq".as_bytes(), &serialized]).await?;
     }
 }
