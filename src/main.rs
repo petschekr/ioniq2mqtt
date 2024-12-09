@@ -96,6 +96,8 @@ struct CommaUITelemetry {
     soc_display: f32,
     available_charge_power: f32,
     available_discharge_power: f32,
+    maximum_charge_current: f32,
+    maximum_charge_power: f32,
 
     sunrise: String,
     sunset: String,
@@ -235,6 +237,7 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
 }
 
 async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, abrp_telemetry: Arc<Mutex<ABRPTelemetry>>, comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
+    let mut most_recent_charge_type = ChargingType::NotCharging;
     loop {
         match rx.recv().await {
             Ok((forwarded_data, _raw)) => {
@@ -245,8 +248,7 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                             abrp_telemetry.utc = seconds_since_epoch();
 
                             abrp_telemetry.power = Some(data.battery_power);
-                            abrp_telemetry.is_charging = data.charging != ChargingType::NotCharging;
-                            abrp_telemetry.is_dcfc = data.charging == ChargingType::DC;
+                            abrp_telemetry.is_charging = data.maximum_charge_voltage > 0.0 && data.battery_current < 0.0;
                             abrp_telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
                             abrp_telemetry.voltage = Some(data.battery_voltage);
                             abrp_telemetry.current = Some(data.battery_current);
@@ -257,6 +259,9 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                             abrp_telemetry.soc = Some(data.soc);
                             abrp_telemetry.soh = Some(data.soh);
                             abrp_telemetry.soe = Some(data.remaining_energy / 1000.0);
+                        },
+                        obd_data::Data::ICCU02(data) => {
+                            abrp_telemetry.is_dcfc = abrp_telemetry.is_charging && data.obc_ac_total_current == 0.0;
                         },
                         obd_data::Data::TirePressures(data) => {
                             abrp_telemetry.utc = seconds_since_epoch();
@@ -290,12 +295,22 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                     let mut comma_telemetry = comma_telemetry.lock().await;
                     match &forwarded_data {
                         obd_data::Data::Battery01(data) => {
-                            comma_telemetry.charging_type = data.charging.clone();
+                            if data.maximum_charge_voltage > 0.0 && data.battery_current < 0.0 {
+                                if most_recent_charge_type == ChargingType::NotCharging {
+                                    most_recent_charge_type = ChargingType::AC;
+                                }
+                            }
+                            else {
+                                most_recent_charge_type = ChargingType::NotCharging;
+                            }
+
                             comma_telemetry.voltage = data.battery_voltage;
                             comma_telemetry.current = data.battery_current;
                             comma_telemetry.max_battery_temp = data.dc_battery_max_temp;
                             comma_telemetry.min_battery_temp = data.dc_battery_min_temp;
                             comma_telemetry.battery_inlet_temp = data.dc_battery_inlet_temp;
+                            comma_telemetry.maximum_charge_current = data.maximum_charge_current;
+                            comma_telemetry.maximum_charge_power = data.maximum_charge_power;
                         },
                         obd_data::Data::Battery05(data) => {
                             comma_telemetry.heater_temp = data.battery_heater_1_temp;
@@ -304,6 +319,11 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                             comma_telemetry.available_charge_power = data.available_charge_power;
                             comma_telemetry.available_discharge_power = data.available_discharge_power;
                         },
+                        obd_data::Data::ICCU02(data) => {
+                            if most_recent_charge_type == ChargingType::AC && data.obc_ac_total_current == 0.0 {
+                                most_recent_charge_type = ChargingType::DC;
+                            }
+                        },
                         obd_data::Data::VCMS04(data) => {
                             comma_telemetry.ac_inlet_temp = data.ac_inlet_1_temperature;
                             comma_telemetry.dc_inlet_temp1 = data.dc_inlet_1_temperature;
@@ -311,6 +331,7 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                         },
                         _ => {},
                     }
+                    comma_telemetry.charging_type = most_recent_charge_type;
                 }
             },
             Err(broadcast::error::RecvError::Lagged(lag_count)) => {
@@ -527,6 +548,8 @@ async fn comma_ui(comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
             ioniq.set_soc_display(comma_telemetry.soc_display);
             ioniq.set_available_charge_power(comma_telemetry.available_charge_power);
             ioniq.set_available_discharge_power(comma_telemetry.available_discharge_power);
+            ioniq.set_maximum_charge_current(comma_telemetry.maximum_charge_current);
+            ioniq.set_maximum_charge_power(comma_telemetry.maximum_charge_power);
             ioniq.set_sunrise(comma_telemetry.sunrise.clone());
             ioniq.set_sunset(comma_telemetry.sunset.clone());
         }
@@ -585,6 +608,8 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Inverter Capacitor Voltage", "inverter_capacitor_voltage", "voltage", "ioniq/batterydata1").with_unit("V").measurement(),
         HASSSensor::new("Front Motor Speed", "front_drive_motor_speed", "frequency", "ioniq/batterydata1").with_unit("Hz").measurement(),
         HASSSensor::new("Rear Motor Speed", "rear_drive_motor_speed", "frequency", "ioniq/batterydata1").with_unit("Hz").measurement(),
+        HASSSensor::new("Maximum DC Charge Current", "maximum_charge_current", "current", "ioniq/batterydata1").with_unit("A").measurement(),
+        HASSSensor::new("Maximum DC Charge Power", "maximum_charge_power", "power", "ioniq/batterydata1").with_unit("kW").measurement(),
 
         HASSSensor::new("SOC Display", "soc", "battery", "ioniq/batterydata5").with_unit("%").dont_expire().measurement(),
         HASSSensor::new("State of Health", "soh", "", "ioniq/batterydata5").with_unit("%").measurement(),
@@ -620,8 +645,8 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Cabin Humidity", "humidity", "humidity", "ioniq/cabinenvironment").with_unit("%").measurement(),
 
         HASSSensor::new("AC Maximum Current Limit", "ac_maximum_current_limit", "current", "ioniq/iccu01").with_unit("A").measurement(),
-        HASSSensor::new("DC Maximum Current Limit", "dc_maximum_current_limit", "current", "ioniq/iccu01").with_unit("A").measurement(),
-        HASSSensor::new("DC Target Voltage", "dc_target_voltage", "voltage", "ioniq/iccu01").with_unit("V").measurement(),
+        //HASSSensor::new("DC Maximum Current Limit", "dc_maximum_current_limit", "current", "ioniq/iccu01").with_unit("A").measurement(),
+        //HASSSensor::new("DC Target Voltage", "dc_target_voltage", "voltage", "ioniq/iccu01").with_unit("V").measurement(),
         HASSSensor::new("V2L AC Target Voltage", "v2l_ac_target_voltage", "voltage", "ioniq/iccu01").with_unit("V").measurement(),
         HASSSensor::new("V2L AC Current Limit", "v2l_ac_current_limit", "current", "ioniq/iccu01").with_unit("A").measurement(),
         HASSSensor::new("V2L DC Current Limit", "v2l_dc_current_limit", "current", "ioniq/iccu01").with_unit("A").measurement(),

@@ -4,7 +4,7 @@ pub trait Process {
     fn process(data: &[u8]) -> Option<Data>;
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, Default)]
 pub enum ChargingType {
     #[default]
     NotCharging,
@@ -15,6 +15,10 @@ pub enum ChargingType {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Battery01 {
     pub charging: ChargingType,
+    pub maximum_charge_voltage: f32,
+    pub maximum_charge_current: f32,
+    pub maximum_charge_power: f32,
+
     pub bms_ignition: bool,
     pub bms_relay: bool,
     pub aux_battery_voltage: f32,
@@ -33,9 +37,6 @@ pub struct Battery01 {
     pub cumulative_discharge_current: f64,
 
     pub cumulative_operating_time: u32,
-
-    //pub available_charge_power: f32,
-    //pub available_discharge_power: f32,
 
     pub dc_battery_inlet_temp: i8,
     pub dc_battery_max_temp: i8,
@@ -60,14 +61,15 @@ impl Process for Battery01 {
     fn process(data: &[u8]) -> Option<Data> {
         let mut data = Self {
             // Car Scanner says charging flag is data[9]
-            // Own analysis suggests maybe it's data[5]
+            // On my car, data[9] is always 0x00 :(
             charging:
-            if data[5] & 0x20 > 0 { ChargingType::AC }
-            else if data[5] & 0x40 > 0 { ChargingType::DC }
-            else if data[5] & 0x80 > 0 { ChargingType::Other }
+            if data[9] & 0x20 > 0 { ChargingType::AC }
+            else if data[9] & 0x40 > 0 { ChargingType::DC }
+            else if data[9] & 0x80 > 0 { ChargingType::Other }
             else { ChargingType::NotCharging },
-            //available_discharge_power: u16::from_be_bytes(data[5..7].try_into().unwrap()) as f32 / 100.0,
-            //available_charge_power: u16::from_be_bytes(data[7..9].try_into().unwrap()) as f32 / 100.0,
+            maximum_charge_voltage: u16::from_be_bytes(data[5..7].try_into().unwrap()) as f32 / 10.0,
+            maximum_charge_current: u16::from_be_bytes(data[7..9].try_into().unwrap()) as f32 / 10.0,
+            maximum_charge_power: 0.0,
 
             bms_ignition: data[50] & 0x04 > 0,
             bms_relay: data[9] & 0x01 > 0,
@@ -101,6 +103,7 @@ impl Process for Battery01 {
             isolation_resistance: u16::from_be_bytes(data[57..59].try_into().unwrap()),
         };
         data.battery_power = data.battery_voltage * data.battery_current / 1000.0;
+        data.maximum_charge_power = data.maximum_charge_current * data.battery_voltage / 1000.0;
         if data.inverter_capacitor_voltage == 6553 {
             data.inverter_capacitor_voltage = 0;
         }
@@ -415,7 +418,7 @@ pub struct VCMS03 {
 impl Process for VCMS03 {
     fn process(data: &[u8]) -> Option<Data> {
         let data = Self {
-            ac_charger_current: u16::from_be_bytes(data[38..40].try_into().unwrap()) as f32 / 100.0,
+            ac_charger_current: u16::from_be_bytes(data[38..40].try_into().unwrap()) as f32 / 10.0,
             ac_charging_counter: u16::from_be_bytes(data[30..32].try_into().unwrap()),
             ac_charging_time: u16::from_be_bytes(data[34..36].try_into().unwrap()),
             ac_charging_time_after_plugin: u16::from_be_bytes(data[42..44].try_into().unwrap()),

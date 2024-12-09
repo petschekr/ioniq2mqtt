@@ -34,6 +34,8 @@ struct Ioniq @0x81c2f05a394cf4af {
     socDisplay @9 :Float32;
     availableChargePower @10 :Float32;
     availableDischargePower @11 :Float32;
+    maximumChargeCurrent @17 :Float32;
+    maximumChargePower @18 :Float32;
 
     sunrise @15 :Text;
     sunset @16 :Text;
