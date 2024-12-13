@@ -261,6 +261,8 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                             abrp_telemetry.soe = Some(data.remaining_energy / 1000.0);
                         },
                         obd_data::Data::ICCU02(data) => {
+                            abrp_telemetry.utc = seconds_since_epoch();
+
                             abrp_telemetry.is_dcfc = abrp_telemetry.is_charging && data.obc_ac_total_current == 0.0;
                         },
                         obd_data::Data::TirePressures(data) => {
