@@ -337,7 +337,7 @@ impl Process for ICCU11 {
             aux_battery_temp: u16::from_be_bytes(data[23..25].try_into().unwrap()) as f32 / 2.0 - 40.0,
             aux_battery_voltage_iccu: u16::from_be_bytes(data[21..23].try_into().unwrap()) as f32 / 1000.0 + 6.0,
             ldc_input_voltage: u16::from_be_bytes(data[14..16].try_into().unwrap()) as f32 / 10.0,
-            ldc_output_current: u16::from_be_bytes(data[12..14].try_into().unwrap()) as f32 / 1000.0,
+            ldc_output_current: u16::from_be_bytes(data[12..14].try_into().unwrap()) as f32 / 100.0,
             ldc_output_voltage: u16::from_be_bytes(data[10..12].try_into().unwrap()) as f32 / 1000.0,
             ldc_output_power: 0.0,
             ldc_temp: data[9] as i8 - 100,
