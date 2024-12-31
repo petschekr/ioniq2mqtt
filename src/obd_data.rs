@@ -98,7 +98,7 @@ impl Process for Battery01 {
             dc_battery_module_temp2: data[17] as i8,
             dc_battery_module_temp3: data[18] as i8,
             dc_battery_module_temp4: data[19] as i8,
-            dc_battery_module_temp5: data[20].try_into().unwrap(),
+            dc_battery_module_temp5: data[20] as i8,
             inverter_capacitor_voltage: u16::from_be_bytes(data[51..53].try_into().unwrap()),
             isolation_resistance: u16::from_be_bytes(data[57..59].try_into().unwrap()),
         };
@@ -195,25 +195,25 @@ impl Process for Battery11 {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TirePressures {
     pub front_left_psi: f32,
-    pub front_left_temp: u8,
+    pub front_left_temp: i8,
     pub front_right_psi: f32,
-    pub front_right_temp: u8,
+    pub front_right_temp: i8,
     pub rear_left_psi: f32,
-    pub rear_left_temp: u8,
+    pub rear_left_temp: i8,
     pub rear_right_psi: f32,
-    pub rear_right_temp: u8,
+    pub rear_right_temp: i8,
 }
 impl Process for TirePressures {
     fn process(data: &[u8]) -> Option<Data> {
         let data = Self {
             front_left_psi: data[4] as f32 / 5.0,
-            front_left_temp: data[5] - 55,
+            front_left_temp: (data[5] as i8) - 55,
             front_right_psi: data[9] as f32 / 5.0,
-            front_right_temp: data[10] - 55,
+            front_right_temp: (data[10] as i8) - 55,
             rear_left_psi: data[14] as f32 / 5.0,
-            rear_left_temp: data[15] - 55,
+            rear_left_temp: (data[15] as i8) - 55,
             rear_right_psi: data[19] as f32 / 5.0,
-            rear_right_temp: data[20] - 55,
+            rear_right_temp: (data[20] as i8) - 55,
         };
         if data.front_right_psi == 0.0 || data.front_left_psi == 0.0 || data.rear_left_psi == 0.0 || data.rear_right_psi == 0.0 {
             return None;
