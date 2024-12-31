@@ -580,6 +580,15 @@ pub struct Location {
     pub speed_accuracy: f32,
     pub has_fix: bool,
 }
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SeaLevelPressure {
+    pub sea_level_pressure: f32,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EnergyUse {
+    pub energy_since_ignition: f32,
+    pub energy_since_charging: f32,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Data {
@@ -603,4 +612,6 @@ pub enum Data {
     Shifter(Shifter),
     Panda(Panda),
     Location(Location),
+    SeaLevelPressure(SeaLevelPressure),
+    EnergyUse(EnergyUse),
 }

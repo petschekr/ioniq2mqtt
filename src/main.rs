@@ -124,8 +124,8 @@ fn get_port(endpoint: &str) -> u16 {
 
 #[tokio::main]
 async fn main() {
-    let (tx, rx) = broadcast::channel::<(obd_data::Data, String)>(16);
-    let telemetry_update_rx = tx.subscribe();
+    let (raw_tx, raw_rx) = broadcast::channel::<(obd_data::Data, String)>(16);
+    let (processed_tx, processed_rx) = broadcast::channel::<(obd_data::Data, String)>(16);
 
     let abrp_telemetry = Arc::new(Mutex::new(ABRPTelemetry {
         utc: 0,
@@ -138,14 +138,15 @@ async fn main() {
 
     let mut tasks = vec![];
 
-    tasks.push(tokio::spawn(update_can(tx.clone())));
-    tasks.push(tokio::spawn(update_panda_info(tx.clone())));
-    tasks.push(tokio::spawn(update_location(tx.clone(), abrp_telemetry.clone(), comma_telemetry.clone())));
-    tasks.push(tokio::spawn(update_telemetry_with_can(telemetry_update_rx, abrp_telemetry.clone(), comma_telemetry.clone())));
+    tasks.push(tokio::spawn(update_can(raw_tx.clone())));
+    tasks.push(tokio::spawn(update_panda_info(raw_tx.clone())));
+    tasks.push(tokio::spawn(update_location(raw_tx.clone(), abrp_telemetry.clone(), comma_telemetry.clone())));
+
+    tasks.push(tokio::spawn(telemetry_processor(raw_rx, processed_tx, abrp_telemetry.clone(), comma_telemetry.clone())));
 
     tasks.push(tokio::spawn(comma_ui(comma_telemetry.clone())));
     tasks.push(tokio::spawn(abrp(abrp_telemetry.clone())));
-    tasks.push(tokio::spawn(mqtt(rx)));
+    tasks.push(tokio::spawn(mqtt(processed_rx)));
 
     let errored = futures::future::select_all(tasks).await;
     println!("A task exited!!");
@@ -236,11 +237,83 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
     Ok(())
 }
 
-async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, abrp_telemetry: Arc<Mutex<ABRPTelemetry>>, comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
-    let mut most_recent_charge_type = ChargingType::NotCharging;
+async fn telemetry_processor(
+    mut rx: Receiver<(obd_data::Data, String)>,
+    tx: Sender<(obd_data::Data, String)>,
+    abrp_telemetry: Arc<Mutex<ABRPTelemetry>>,
+    comma_telemetry: Arc<Mutex<CommaUITelemetry>>
+) -> Result<()> {
+    let mut is_ac_charging = false;
+    let mut altitude_msl: Option<f64> = None;
+    let mut energy_at_ignition: Option<f32> = None;
+    let mut energy_at_charging: Option<f32> = None;
+    let mut last_charging_type = ChargingType::NotCharging;
+    let mut last_ignition_state = false;
     loop {
         match rx.recv().await {
-            Ok((forwarded_data, _raw)) => {
+            Ok((mut forwarded_data, raw)) => {
+                match &mut forwarded_data {
+                    obd_data::Data::Battery01(ref mut data) => {
+                        data.charging = if data.maximum_charge_voltage > 0.0 && data.battery_current < 0.0 {
+                            if is_ac_charging {
+                                ChargingType::AC
+                            }
+                            else {
+                                ChargingType::DC
+                            }
+                        }
+                        else {
+                            ChargingType::NotCharging
+                        };
+                        if last_charging_type != data.charging {
+                            energy_at_charging = None;
+                        }
+                        last_charging_type = data.charging;
+                    },
+                    obd_data::Data::Battery05(data) => {
+                        if energy_at_ignition.is_none() {
+                            energy_at_ignition = Some(data.remaining_energy);
+                        }
+                        if energy_at_charging.is_none() {
+                            energy_at_charging = Some(data.remaining_energy);
+                        }
+                        // Unwrap is safe because both values are checked for None above
+                        let energy_at_ignition = energy_at_ignition.unwrap();
+                        let energy_at_charging = energy_at_charging.unwrap();
+                        tx.send((obd_data::Data::EnergyUse(obd_data::EnergyUse {
+                            energy_since_ignition: energy_at_ignition - data.remaining_energy,
+                            energy_since_charging: energy_at_charging - data.remaining_energy,
+                        }), format!("Ignition: {} kWh, Charging: {} kWh", energy_at_ignition, energy_at_charging)))?;
+                    },
+                    obd_data::Data::ICCU02(data) => {
+                        is_ac_charging = data.obc_ac_total_current > 0.0;
+                    },
+                    obd_data::Data::IGPM03(data) => {
+                        if last_ignition_state != data.ignition_on {
+                            energy_at_ignition = None;
+                        }
+                        last_ignition_state = data.ignition_on;
+                    },
+                    obd_data::Data::Location(data) => {
+                        if data.has_fix {
+                            altitude_msl = Some(data.altitude);
+                        }
+                    },
+                    obd_data::Data::CabinEnvironment(data) => {
+                        if let Some(altitude_msl) = altitude_msl {
+                            const TEMP_GRADIENT: f64 = 0.0065;
+                            let sea_level_temp = (data.temperature as f64 + 273.15) + (TEMP_GRADIENT * altitude_msl);
+                            let sea_level_pressure = (data.pressure as f64) / (1.0 - TEMP_GRADIENT * altitude_msl / sea_level_temp).powf(0.03416 / TEMP_GRADIENT);
+
+                            tx.send((obd_data::Data::SeaLevelPressure(obd_data::SeaLevelPressure {
+                                sea_level_pressure: sea_level_pressure as f32,
+                            }), String::new()))?;
+                        }
+                    },
+                    _ => {},
+                };
+
+                // Update the ABRP telemetry object with latest data
                 {
                     let mut abrp_telemetry = abrp_telemetry.lock().await;
                     match &forwarded_data {
@@ -248,7 +321,8 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                             abrp_telemetry.utc = seconds_since_epoch();
 
                             abrp_telemetry.power = Some(data.battery_power);
-                            abrp_telemetry.is_charging = data.maximum_charge_voltage > 0.0 && data.battery_current < 0.0;
+                            abrp_telemetry.is_charging = data.charging != ChargingType::NotCharging;
+                            abrp_telemetry.is_dcfc = data.charging == ChargingType::DC;
                             abrp_telemetry.batt_temp = Some((data.dc_battery_max_temp as f32 + data.dc_battery_min_temp as f32) / 2.0);
                             abrp_telemetry.voltage = Some(data.battery_voltage);
                             abrp_telemetry.current = Some(data.battery_current);
@@ -259,11 +333,6 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                             abrp_telemetry.soc = Some(data.soc);
                             abrp_telemetry.soh = Some(data.soh);
                             abrp_telemetry.soe = Some(data.remaining_energy / 1000.0);
-                        },
-                        obd_data::Data::ICCU02(data) => {
-                            abrp_telemetry.utc = seconds_since_epoch();
-
-                            abrp_telemetry.is_dcfc = abrp_telemetry.is_charging && data.obc_ac_total_current <= 0.0;
                         },
                         obd_data::Data::TirePressures(data) => {
                             abrp_telemetry.utc = seconds_since_epoch();
@@ -293,19 +362,12 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                         _ => {},
                     };
                 }
+                // Update the Comma UI telemetry object with latest data
                 {
                     let mut comma_telemetry = comma_telemetry.lock().await;
                     match &forwarded_data {
                         obd_data::Data::Battery01(data) => {
-                            if data.maximum_charge_voltage > 0.0 && data.battery_current < 0.0 {
-                                if most_recent_charge_type == ChargingType::NotCharging {
-                                    most_recent_charge_type = ChargingType::AC;
-                                }
-                            }
-                            else {
-                                most_recent_charge_type = ChargingType::NotCharging;
-                            }
-
+                            comma_telemetry.charging_type = data.charging;
                             comma_telemetry.voltage = data.battery_voltage;
                             comma_telemetry.current = data.battery_current;
                             comma_telemetry.max_battery_temp = data.dc_battery_max_temp;
@@ -321,23 +383,19 @@ async fn update_telemetry_with_can(mut rx: Receiver<(obd_data::Data, String)>, a
                             comma_telemetry.available_charge_power = data.available_charge_power;
                             comma_telemetry.available_discharge_power = data.available_discharge_power;
                         },
-                        obd_data::Data::ICCU02(data) => {
-                            if most_recent_charge_type == ChargingType::AC && data.obc_ac_total_current <= 0.0 {
-                                most_recent_charge_type = ChargingType::DC;
-                            }
-                        },
                         obd_data::Data::VCMS04(data) => {
                             comma_telemetry.ac_inlet_temp = data.ac_inlet_1_temperature;
                             comma_telemetry.dc_inlet_temp1 = data.dc_inlet_1_temperature;
                             comma_telemetry.dc_inlet_temp2 = data.dc_inlet_2_temperature;
                         },
                         _ => {},
-                    }
-                    comma_telemetry.charging_type = most_recent_charge_type;
+                    };
                 }
+                // Send out the processed data for MQTT to publish
+                tx.send((forwarded_data, raw))?;
             },
             Err(broadcast::error::RecvError::Lagged(lag_count)) => {
-                println!("Telemetry updater lagged by {} message(s)", lag_count);
+                println!("Telemetry processor lagged by {} message(s)", lag_count);
             },
             Err(err) => anyhow::bail!(err),
         }
@@ -622,6 +680,9 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Battery Heater 2 Temperature", "battery_heater_2_temp", "temperature", "ioniq/batterydata5").with_unit("°C").measurement(),
         HASSSensor::new("Remaining Energy", "remaining_energy", "energy_storage", "ioniq/batterydata5").with_unit("Wh").measurement(),
 
+        HASSSensor::new("Energy Since Ignition", "energy_since_ignition", "energy", "ioniq/energyuse").with_unit("Wh").measurement(),
+        HASSSensor::new("Energy Since Charging", "energy_since_charging", "energy", "ioniq/energyuse").with_unit("Wh").measurement(),
+
         HASSSensor::new("AC Charging Events", "ac_charging_events", "", "ioniq/batterydata11").dont_expire().total_increasing(),
         HASSSensor::new("DC Charging Events", "dc_charging_events", "", "ioniq/batterydata11").dont_expire().total_increasing(),
         HASSSensor::new("Cumulative AC Charging Energy", "cumulative_ac_charging_energy", "energy", "ioniq/batterydata11").with_unit("kWh").dont_expire().total_increasing(),
@@ -643,8 +704,11 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Odometer", "odometer", "distance", "ioniq/dashboard").with_unit("mi").dont_expire().total_increasing(),
 
         HASSSensor::new("Cabin Pressure", "pressure", "atmospheric_pressure", "ioniq/cabinenvironment").with_unit("Pa").measurement(),
+        HASSSensor::new("Cabin Sea Level Pressure", "sea_level_pressure", "atmospheric_pressure", "ioniq/sealevelpressure").with_unit("Pa").measurement(),
         HASSSensor::new("Cabin Temperature", "temperature", "temperature", "ioniq/cabinenvironment").with_unit("°C").measurement(),
         HASSSensor::new("Cabin Humidity", "humidity", "humidity", "ioniq/cabinenvironment").with_unit("%").measurement(),
+
+        HASSSensor::new("Altitude", "altitude", "distance", "ioniq/location").with_unit("m").measurement(),
 
         HASSSensor::new("AC Maximum Current Limit", "ac_maximum_current_limit", "current", "ioniq/iccu01").with_unit("A").measurement(),
         //HASSSensor::new("DC Maximum Current Limit", "dc_maximum_current_limit", "current", "ioniq/iccu01").with_unit("A").measurement(),
@@ -734,22 +798,18 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
                     obd_data::Data::Dashboard(data) => ("homeassistant/sensor/ioniq/dashboard", serde_json::to_vec(&data)?),
                     obd_data::Data::IGPM03(data) => ("homeassistant/sensor/ioniq/igpm03", serde_json::to_vec(&data)?),
                     obd_data::Data::IGPM04(data) => ("homeassistant/sensor/ioniq/igpm04", serde_json::to_vec(&data)?),
-                    obd_data::Data::CabinEnvironment(data) => {
-                        client.publish("homeassistant/sensor/ioniq/cabinenvironment/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
-                        continue;
-                    },
-                    obd_data::Data::Shifter(data) => {
-                        client.publish("homeassistant/sensor/ioniq/shifter/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
-                        continue;
-                    },
-                    obd_data::Data::Panda(data) => {
-                        client.publish("homeassistant/sensor/ioniq/panda/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
-                        continue;
-                    },
+                    obd_data::Data::CabinEnvironment(data) => ("homeassistant/sensor/ioniq/cabinenvironment", serde_json::to_vec(&data)?),
+                    obd_data::Data::Shifter(data) => ("homeassistant/sensor/ioniq/shifter", serde_json::to_vec(&data)?),
+                    obd_data::Data::Panda(data) => ("homeassistant/sensor/ioniq/panda", serde_json::to_vec(&data)?),
                     obd_data::Data::Location(data) => {
+                        // For altitude sensor
+                        client.publish("homeassistant/sensor/ioniq/location/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
+                        // For device tracker
                         client.publish("homeassistant/device_tracker/ioniq/location/state", QoS::AtLeastOnce, false, serde_json::to_vec(&data)?).await?;
                         continue;
                     },
+                    obd_data::Data::SeaLevelPressure(data) => ("homeassistant/sensor/ioniq/sealevelpressure", serde_json::to_vec(&data)?),
+                    obd_data::Data::EnergyUse(data) => ("homeassistant/sensor/ioniq/energyuse", serde_json::to_vec(&data)?),
                 };
                 client.publish(format!("{}/state", topic_root), QoS::AtLeastOnce, false, data).await?;
                 client.publish(format!("{}/raw", topic_root), QoS::AtLeastOnce, false, format!("{{\"raw\": \"{}\"}}", raw).into_bytes()).await?;
