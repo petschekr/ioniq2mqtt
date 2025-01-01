@@ -283,13 +283,13 @@ async fn telemetry_processor(
                         tx.send((obd_data::Data::EnergyUse(obd_data::EnergyUse {
                             energy_since_ignition: energy_at_ignition - data.remaining_energy,
                             energy_since_charging: energy_at_charging - data.remaining_energy,
-                        }), format!("Ignition: {} kWh, Charging: {} kWh", energy_at_ignition, energy_at_charging)))?;
+                        }), format!("Ignition: {} kWh, Charging: {} kWh", energy_at_ignition / 1000.0, energy_at_charging / 1000.0)))?;
                     },
                     obd_data::Data::ICCU02(data) => {
                         is_ac_charging = data.obc_ac_total_current > 0.0;
                     },
                     obd_data::Data::IGPM03(data) => {
-                        if last_ignition_state != data.ignition_on {
+                        if last_ignition_state != data.ignition_on && data.ignition_on {
                             energy_at_ignition = None;
                         }
                         last_ignition_state = data.ignition_on;
