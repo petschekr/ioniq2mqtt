@@ -559,11 +559,19 @@ async fn abrp(abrp_telemetry: Arc<Mutex<ABRPTelemetry>>) -> Result<()> {
                 continue;
             }
         };
-        let response_body = response.text().await?;
-        if response_body != "{\"status\": \"ok\"}" {
-            println!("Telemetry: {}", &abrp_telemetry);
-            println!("Response: {}", &response_body);
-        }
+        let response_body = response.text().await;
+        match response_body {
+            Ok(response_body) => {
+                if response_body != "{\"status\": \"ok\"}" {
+                    println!("Telemetry: {}", &abrp_telemetry);
+                    println!("Response: {}", &response_body);
+                }
+            },
+            Err(err) => {
+                eprintln!("ABRP Error = {err:?}");
+                continue;
+            }
+        };
     }
 }
 
