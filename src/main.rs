@@ -267,6 +267,7 @@ async fn telemetry_processor(
                         };
                         if last_charging_type != data.charging {
                             energy_at_charging = None;
+                            energy_at_ignition = None;
                         }
                         last_charging_type = data.charging;
                     },
