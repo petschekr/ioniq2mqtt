@@ -128,6 +128,7 @@ fn get_port(endpoint: &str) -> u16 {
 async fn main() {
     let (raw_tx, raw_rx) = broadcast::channel::<(obd_data::Data, String)>(16);
     let (processed_tx, processed_rx) = broadcast::channel::<(obd_data::Data, String)>(16);
+    let processed_rx2 = processed_tx.subscribe();
 
     let abrp_telemetry = Arc::new(Mutex::new(ABRPTelemetry {
         utc: 0,
@@ -144,11 +145,12 @@ async fn main() {
     tasks.push(tokio::spawn(update_panda_info(raw_tx.clone())));
     tasks.push(tokio::spawn(update_location(raw_tx.clone(), abrp_telemetry.clone(), comma_telemetry.clone())));
 
-    tasks.push(tokio::spawn(telemetry_processor(raw_rx, processed_tx, abrp_telemetry.clone(), comma_telemetry.clone())));
+    tasks.push(tokio::spawn(telemetry_processor(raw_rx, processed_tx)));
+    tasks.push(tokio::spawn(telemetry_updater(processed_rx, abrp_telemetry.clone(), comma_telemetry.clone())));
 
     tasks.push(tokio::spawn(comma_ui(comma_telemetry.clone())));
     tasks.push(tokio::spawn(abrp(abrp_telemetry.clone())));
-    tasks.push(tokio::spawn(mqtt(processed_rx)));
+    tasks.push(tokio::spawn(mqtt(processed_rx2)));
 
     let errored = futures::future::select_all(tasks).await;
     println!("A task exited!!");
@@ -242,8 +244,6 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
 async fn telemetry_processor(
     mut rx: Receiver<(obd_data::Data, String)>,
     tx: Sender<(obd_data::Data, String)>,
-    abrp_telemetry: Arc<Mutex<ABRPTelemetry>>,
-    comma_telemetry: Arc<Mutex<CommaUITelemetry>>
 ) -> Result<()> {
     let mut is_ac_charging = false;
     let mut altitude_msl: Option<f64> = None;
@@ -316,6 +316,26 @@ async fn telemetry_processor(
                     _ => {},
                 };
 
+
+                // Send out the processed data for MQTT to publish
+                tx.send((forwarded_data, raw))?;
+            },
+            Err(broadcast::error::RecvError::Lagged(lag_count)) => {
+                println!("Telemetry processor lagged by {} message(s)", lag_count);
+            },
+            Err(err) => anyhow::bail!(err),
+        }
+    }
+}
+
+async fn telemetry_updater(
+    mut rx: Receiver<(obd_data::Data, String)>,
+    abrp_telemetry: Arc<Mutex<ABRPTelemetry>>,
+    comma_telemetry: Arc<Mutex<CommaUITelemetry>>
+) -> Result<()> {
+    loop {
+        match rx.recv().await {
+            Ok((forwarded_data, _raw)) => {
                 // Update the ABRP telemetry object with latest data
                 {
                     let mut abrp_telemetry = abrp_telemetry.lock().await;
@@ -398,11 +418,9 @@ async fn telemetry_processor(
                         _ => {},
                     };
                 }
-                // Send out the processed data for MQTT to publish
-                tx.send((forwarded_data, raw))?;
             },
             Err(broadcast::error::RecvError::Lagged(lag_count)) => {
-                println!("Telemetry processor lagged by {} message(s)", lag_count);
+                println!("Telemetry updater lagged by {} message(s)", lag_count);
             },
             Err(err) => anyhow::bail!(err),
         }
