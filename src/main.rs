@@ -98,6 +98,8 @@ struct CommaUITelemetry {
     available_discharge_power: f32,
     maximum_charge_current: f32,
     maximum_charge_power: f32,
+    energy_since_ignition: f32,
+    energy_since_charging: f32,
 
     sunrise: String,
     sunset: String,
@@ -389,6 +391,10 @@ async fn telemetry_processor(
                             comma_telemetry.dc_inlet_temp1 = data.dc_inlet_1_temperature;
                             comma_telemetry.dc_inlet_temp2 = data.dc_inlet_2_temperature;
                         },
+                        obd_data::Data::EnergyUse(data) => {
+                            comma_telemetry.energy_since_ignition = data.energy_since_ignition;
+                            comma_telemetry.energy_since_charging = data.energy_since_charging;
+                        },
                         _ => {},
                     };
                 }
@@ -619,6 +625,8 @@ async fn comma_ui(comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
             ioniq.set_available_discharge_power(comma_telemetry.available_discharge_power);
             ioniq.set_maximum_charge_current(comma_telemetry.maximum_charge_current);
             ioniq.set_maximum_charge_power(comma_telemetry.maximum_charge_power);
+            ioniq.set_energy_since_ignition(comma_telemetry.energy_since_ignition);
+            ioniq.set_energy_since_charging(comma_telemetry.energy_since_charging);
             ioniq.set_sunrise(comma_telemetry.sunrise.clone());
             ioniq.set_sunset(comma_telemetry.sunset.clone());
         }

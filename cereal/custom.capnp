@@ -36,6 +36,8 @@ struct Ioniq @0x81c2f05a394cf4af {
     availableDischargePower @11 :Float32;
     maximumChargeCurrent @17 :Float32;
     maximumChargePower @18 :Float32;
+    energySinceIgnition @19 :Float32;
+    energySinceCharging @20 :Float32;
 
     sunrise @15 :Text;
     sunset @16 :Text;
