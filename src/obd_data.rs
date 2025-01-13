@@ -529,11 +529,15 @@ pub struct CabinEnvironment {
 }
 impl Process for CabinEnvironment {
     fn process(data: &[u8]) -> Option<Data> {
-        Some(Data::CabinEnvironment(Self {
+        let data = Self {
             pressure: f32::from_be_bytes(data[0..4].try_into().unwrap()),
             temperature: f32::from_be_bytes(data[4..8].try_into().unwrap()),
             humidity: f32::from_be_bytes(data[8..12].try_into().unwrap()),
-        }))
+        };
+        if data.pressure == 0.0 {
+            return None;
+        }
+        Some(Data::CabinEnvironment(data))
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
