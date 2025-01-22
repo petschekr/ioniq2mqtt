@@ -743,7 +743,7 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Cabin Temperature", "temperature", "temperature", "ioniq/cabinenvironment").with_unit("°C").measurement(),
         HASSSensor::new("Cabin Humidity", "humidity", "humidity", "ioniq/cabinenvironment").with_unit("%").measurement(),
 
-        HASSSensor::new("Altitude", "altitude", "distance", "ioniq/location").with_unit("m").measurement(),
+        HASSSensor::new("Altitude", "altitude", "distance", "ioniq/location").with_unit("m").measurement().dont_expire(),
 
         HASSSensor::new("AC Maximum Current Limit", "ac_maximum_current_limit", "current", "ioniq/iccu01").with_unit("A").measurement(),
         //HASSSensor::new("DC Maximum Current Limit", "dc_maximum_current_limit", "current", "ioniq/iccu01").with_unit("A").measurement(),
