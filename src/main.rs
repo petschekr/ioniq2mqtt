@@ -775,6 +775,13 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("LDC Output Power", "ldc_output_power", "power", "ioniq/iccu11").with_unit("W").measurement(),
         HASSSensor::new("LDC Temperature", "ldc_temp", "temperature", "ioniq/iccu11").with_unit("°C").measurement(),
 
+        HASSSensor::new("AC Total Charging Time", "ac_charging_time", "duration", "ioniq/vcms03").with_unit("h").measurement(),
+        HASSSensor::new("AC Session Charging Time", "ac_charging_time_after_plugin", "duration", "ioniq/vcms03").with_unit("min").measurement(),
+        HASSSensor::new("DC Total Charging Time", "dc_charging_time", "duration", "ioniq/vcms03").with_unit("h").measurement(),
+        HASSSensor::new("DC Session Charging Time", "dc_charging_time_after_plugin", "duration", "ioniq/vcms03").with_unit("min").measurement(),
+        HASSSensor::new("Control Pilot Voltage", "cp_voltage", "voltage", "ioniq/vcms03").with_unit("V").measurement(),
+        HASSSensor::new("Control Pilot Duty Cycle", "cp_duty_cycle", "", "ioniq/vcms03").with_unit("%").measurement(),
+
         HASSSensor::new("AC Inlet Temperature", "ac_inlet_1_temperature", "temperature", "ioniq/vcms04").with_unit("°C").measurement(),
         HASSSensor::new("DC Inlet Temperature 1", "dc_inlet_1_temperature", "temperature", "ioniq/vcms04").with_unit("°C").measurement(),
         HASSSensor::new("DC Inlet Temperature 2", "dc_inlet_2_temperature", "temperature", "ioniq/vcms04").with_unit("°C").measurement(),
