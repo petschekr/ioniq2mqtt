@@ -809,6 +809,8 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSBinarySensor::new("Rear Left Seat Belt", "rear_left_seat_belt", "occupancy","ioniq/igpm04"),
         HASSBinarySensor::new("Rear Center Seat Belt", "rear_center_seat_belt", "occupancy","ioniq/igpm04"),
         HASSBinarySensor::new("Rear Right Seat Belt", "rear_right_seat_belt", "occupancy","ioniq/igpm04"),
+
+        HASSBinarySensor::new("Plugged In", "plugged_in", "plug","ioniq/vcms03"),
     ];
 
     for sensor in sensors.iter() {

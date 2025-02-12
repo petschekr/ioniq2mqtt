@@ -404,6 +404,7 @@ pub struct VCMS03 {
     pub bms_voltage_target: f32, // [24..26] / 10.0
     pub cp_duty_cycle: f32, // [7..9] / 10.0
     pub cp_voltage: f32, // [6] / 10.0
+    pub plugged_in: bool,
     pub dc_charging_time: u16, // [36..38]
     pub dc_charging_time_after_plugin: u16, // [44..46]
     pub dc_max_current: f32, // [40..42] / 100.0
@@ -417,7 +418,7 @@ pub struct VCMS03 {
 }
 impl Process for VCMS03 {
     fn process(data: &[u8]) -> Option<Data> {
-        let data = Self {
+        let mut data = Self {
             ac_charger_current: u16::from_be_bytes(data[38..40].try_into().unwrap()) as f32 / 10.0,
             ac_charging_counter: u16::from_be_bytes(data[30..32].try_into().unwrap()),
             ac_charging_time: u16::from_be_bytes(data[34..36].try_into().unwrap()),
@@ -426,6 +427,7 @@ impl Process for VCMS03 {
             bms_voltage_target: u16::from_be_bytes(data[24..26].try_into().unwrap()) as f32 / 10.0,
             cp_duty_cycle: u16::from_be_bytes(data[7..9].try_into().unwrap()) as f32 / 10.0,
             cp_voltage: data[6] as f32 / 10.0,
+            plugged_in: false,
             dc_charging_time: u16::from_be_bytes(data[36..38].try_into().unwrap()),
             dc_charging_time_after_plugin: u16::from_be_bytes(data[44..46].try_into().unwrap()),
             dc_max_current: u16::from_be_bytes(data[40..42].try_into().unwrap()) as f32 / 100.0,
@@ -437,6 +439,9 @@ impl Process for VCMS03 {
             hv_battery_soc: data[15] as f32 / 2.0,
             hv_battery_voltage: u16::from_be_bytes(data[13..15].try_into().unwrap()) as f32 / 10.0,
         };
+        if data.cp_voltage > 1.0 {
+            data.plugged_in = true;
+        }
         Some(Data::VCMS03(data))
     }
 }
