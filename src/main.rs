@@ -654,7 +654,7 @@ async fn comma_ui(comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
 }
 
 async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
-    let mut mqttoptions = MqttOptions::new("ioniq2mqtt", "wraith.petschek.cc", 8883);
+    let mut mqttoptions = MqttOptions::new("ioniq2mqtt", "mqtt.petschek.cc", 8883);
     mqttoptions.set_keep_alive(Duration::from_secs(5));
 
     let ca = include_bytes!("../certs/ca.crt");
