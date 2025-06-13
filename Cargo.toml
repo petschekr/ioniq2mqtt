@@ -26,5 +26,5 @@ capnpc = "0.20"
 # Install capnproto
 pre-build = [
     "dpkg --add-architecture $CROSS_DEB_ARCH",
-    "apt-get update && apt-get --assume-yes install capnproto"
+    "apt-get update && apt-get install --assume-yes capnproto"
 ]

@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use tokio::time;
 use futures::{SinkExt, StreamExt};
 use rumqttc::{AsyncClient, MqttOptions, QoS, TlsConfiguration, Transport};
-use serde::Serialize;
+use serde::{ Serialize, Deserialize };
 use crate::obd_data::{ChargingType, Gear, Process};
 use crate::hass::{HASSSensor, HASSBinarySensor, HASSDeviceTracker};
 
@@ -103,6 +103,14 @@ struct CommaUITelemetry {
 
     sunrise: String,
     sunset: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+struct PersistentIoniqData {
+    energy_at_ignition: f32,
+    energy_at_charging: f32,
+    ac_charge_counter: u32,
+    dc_charge_counter: u32,
 }
 
 fn seconds_since_epoch() -> u64 {
@@ -251,6 +259,14 @@ async fn telemetry_processor(
     let mut energy_at_charging: Option<f32> = None;
     let mut last_charging_type = ChargingType::NotCharging;
     let mut last_ignition_state = false;
+
+    let mut previous_data: Option<PersistentIoniqData> = serde_json::from_slice(
+        tokio::fs::read("/data/ioniq_data")
+            .await
+            .unwrap_or_default()
+            .as_slice()
+    ).ok();
+
     loop {
         match rx.recv().await {
             Ok((mut forwarded_data, raw)) => {
@@ -287,6 +303,26 @@ async fn telemetry_processor(
                             energy_since_ignition: energy_at_ignition - data.remaining_energy,
                             energy_since_charging: energy_at_charging - data.remaining_energy,
                         }), format!("Ignition: {} kWh, Charging: {} kWh", energy_at_ignition / 1000.0, energy_at_charging / 1000.0)))?;
+                    },
+                    obd_data::Data::Battery11(data) => {
+                        if let Some(ref previous) = previous_data {
+                            if previous.ac_charge_counter == data.ac_charging_events && previous.dc_charge_counter == data.dc_charging_events {
+                                // TODO: figure out how to restore ignition data
+                                //energy_at_ignition = Some(previous.energy_at_ignition);
+                                energy_at_charging = Some(previous.energy_at_charging);
+                                previous_data = None;
+                            }
+                        }
+                        
+                        if let (Some(energy_at_charging), Some(energy_at_ignition)) = (energy_at_charging, energy_at_ignition) {
+                            let persist_data = PersistentIoniqData {
+                                energy_at_charging,
+                                energy_at_ignition,
+                                ac_charge_counter: data.ac_charging_events,
+                                dc_charge_counter: data.dc_charging_events,
+                            };
+                            tokio::fs::write("/data/ioniq_data", serde_json::to_string(&persist_data).unwrap()).await?;
+                        }
                     },
                     obd_data::Data::ICCU02(data) => {
                         is_ac_charging = data.obc_ac_total_current > 0.0;
