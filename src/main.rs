@@ -751,8 +751,8 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Battery Heater 2 Temperature", "battery_heater_2_temp", "temperature", "ioniq/batterydata5").with_unit("°C").measurement(),
         HASSSensor::new("Remaining Energy", "remaining_energy", "energy_storage", "ioniq/batterydata5").with_unit("Wh").measurement(),
 
-        HASSSensor::new("Energy Since Ignition", "energy_since_ignition", "energy", "ioniq/energyuse").with_unit("Wh").measurement(),
-        HASSSensor::new("Energy Since Charging", "energy_since_charging", "energy", "ioniq/energyuse").with_unit("Wh").measurement(),
+        HASSSensor::new("Energy Since Ignition", "energy_since_ignition", "energy", "ioniq/energyuse").with_unit("Wh").total_increasing(),
+        HASSSensor::new("Energy Since Charging", "energy_since_charging", "energy", "ioniq/energyuse").with_unit("Wh").total_increasing(),
 
         HASSSensor::new("AC Charging Events", "ac_charging_events", "", "ioniq/batterydata11").dont_expire().total_increasing(),
         HASSSensor::new("DC Charging Events", "dc_charging_events", "", "ioniq/batterydata11").dont_expire().total_increasing(),
