@@ -271,7 +271,7 @@ async fn telemetry_processor(
         match rx.recv().await {
             Ok((mut forwarded_data, raw)) => {
                 match &mut forwarded_data {
-                    obd_data::Data::Battery01(ref mut data) => {
+                    obd_data::Data::Battery01(data) => {
                         data.charging = if data.maximum_charge_voltage > 0.0 && data.battery_current < 0.0 {
                             if is_ac_charging {
                                 ChargingType::AC
@@ -313,7 +313,7 @@ async fn telemetry_processor(
                                 previous_data = None;
                             }
                         }
-                        
+
                         if let (Some(energy_at_charging), Some(energy_at_ignition)) = (energy_at_charging, energy_at_ignition) {
                             let persist_data = PersistentIoniqData {
                                 energy_at_charging,

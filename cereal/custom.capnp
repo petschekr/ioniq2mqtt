@@ -8,7 +8,7 @@ $Cxx.namespace("cereal");
 # cereal, so use these if you want custom events in your fork.
 
 # you can rename the struct, but don't change the identifier
-struct Ioniq @0x81c2f05a394cf4af {
+struct Ioniq @0xbd443b539493bc68 {
     altitudeMsl @0 :Float64;
 
     chargingType @1 :ChargingType;

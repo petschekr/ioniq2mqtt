@@ -13,8 +13,8 @@ pub const IONIQ_5: HASSDevice = HASSDevice {
     manufacturer: "Hyundai",
     model: "Ioniq 5",
     name: "Ioniq 5",
-    serial_number: "KM8KRDDF1RU297513",
-    identifiers: "KM8KRDDF1RU297513",
+    serial_number: "7YAKRDDC3SY003028",
+    identifiers: "7YAKRDDC3SY003028",
     sw_version: "0.1.0",
 };
 #[derive(Serialize, Debug)]
