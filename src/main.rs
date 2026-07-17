@@ -24,8 +24,8 @@ mod car_capnp {
 mod custom_capnp {
     include!(concat!(env!("OUT_DIR"), "/custom_capnp.rs"));
 }
-mod legacy_capnp {
-    include!(concat!(env!("OUT_DIR"), "/legacy_capnp.rs"));
+mod deprecated_capnp {
+    include!(concat!(env!("OUT_DIR"), "/deprecated_capnp.rs"));
 }
 
 #[derive(Serialize, Debug, Default)]

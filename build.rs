@@ -3,7 +3,7 @@ fn main() {
         .src_prefix("cereal")
         .file("cereal/log.capnp")
         .file("cereal/car.capnp")
-        .file("cereal/legacy.capnp")
+        .file("cereal/deprecated.capnp")
         .file("cereal/custom.capnp")
         .run().expect("schema compiler command");
 }
