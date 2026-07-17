@@ -224,6 +224,7 @@ impl Process for TirePressures {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HVAC {
     pub indoor_temp: f32,
+    pub indoor_humidity: u8,
     pub outdoor_temp: f32,
     pub vehicle_speed: u8,
 }
@@ -232,6 +233,7 @@ impl Process for HVAC {
         Some(Data::HVAC(Self {
             indoor_temp: data[5] as f32 / 2.0 - 40.0,
             outdoor_temp: data[6] as f32 / 2.0 - 40.0,
+            indoor_humidity: data[25],
             vehicle_speed: data[29],
         }))
     }
@@ -531,6 +533,16 @@ impl Process for IGPM04 {
         // }))
     }
 }
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct IGPM06 {
+    pub brake_light: bool,
+    pub brake_light_raw: u8,
+}
+impl Process for IGPM06 {
+    fn process(data: &[u8]) -> Option<Data> {
+        Some(Data::IGPM06(Self {
+            brake_light: data.get(4).copied().map(|status| status > 0).unwrap_or(false),
+            brake_light_raw: data.get(4).copied().unwrap_or(255),
         }))
     }
 }
@@ -625,6 +637,7 @@ pub enum Data {
     Dashboard(Dashboard),
     IGPM03(IGPM03),
     IGPM04(IGPM04),
+    IGPM06(IGPM06),
     CabinEnvironment(CabinEnvironment),
     Shifter(Shifter),
     Panda(Panda),

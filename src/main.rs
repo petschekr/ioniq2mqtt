@@ -220,6 +220,7 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
                                 0x760 => obd_data::Dashboard::process(data),
                                 0x773 => obd_data::IGPM03::process(data),
                                 0x774 => obd_data::IGPM04::process(data),
+                                0x776 => obd_data::IGPM06::process(data),
                                 0x7A0 => obd_data::CabinEnvironment::process(data),
                                 _ => {
                                     println!("Unknown forwarding address 0x{:x}", can_event.get_address());
@@ -770,6 +771,7 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
 
         HASSSensor::new("HVAC Indoor Temperature", "indoor_temp", "temperature", "ioniq/hvac").with_unit("°C").measurement(),
         HASSSensor::new("HVAC Outdoor Temperature", "outdoor_temp", "temperature", "ioniq/hvac").with_unit("°C").measurement(),
+        HASSSensor::new("HVAC Indoor Humidity", "indoor_humidity", "humidity", "ioniq/hvac").with_unit("%").measurement(),
         HASSSensor::new("Vehicle Speed", "vehicle_speed", "speed", "ioniq/hvac").with_unit("km/h").measurement(),
 
         HASSSensor::new("Odometer", "odometer", "distance", "ioniq/dashboard").with_unit("mi").dont_expire().total_increasing(),
@@ -827,6 +829,8 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Panda Voltage", "panda_aux_battery_voltage", "voltage", "ioniq/panda").with_unit("V").measurement(),
         HASSSensor::new("Panda Current", "panda_aux_battery_current", "current", "ioniq/panda").with_unit("A").measurement(),
         HASSSensor::new("Panda Fan", "panda_fan_speed", "frequency", "ioniq/panda").with_unit("Hz").measurement(),
+
+        HASSSensor::new("Brake Light Raw", "brake_light_raw", "","ioniq/vcms06").measurement(),
     ];
     let binary_sensors = [
         HASSBinarySensor::new("Ignition On", "ignition_on", "power","ioniq/igpm03"),
@@ -847,6 +851,8 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSBinarySensor::new("Rear Right Seat Belt", "rear_right_seat_belt", "occupancy","ioniq/igpm04"),
 
         HASSBinarySensor::new("Plugged In", "plugged_in", "plug","ioniq/vcms03"),
+
+        HASSBinarySensor::new("Brake Light", "brake_light", "light","ioniq/vcms06"),
     ];
 
     for sensor in sensors.iter() {
@@ -878,6 +884,7 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
                     obd_data::Data::Dashboard(data) => ("homeassistant/sensor/ioniq/dashboard", serde_json::to_vec(&data)?),
                     obd_data::Data::IGPM03(data) => ("homeassistant/sensor/ioniq/igpm03", serde_json::to_vec(&data)?),
                     obd_data::Data::IGPM04(data) => ("homeassistant/sensor/ioniq/igpm04", serde_json::to_vec(&data)?),
+                    obd_data::Data::IGPM06(data) => ("homeassistant/sensor/ioniq/igpm06", serde_json::to_vec(&data)?),
                     obd_data::Data::CabinEnvironment(data) => ("homeassistant/sensor/ioniq/cabinenvironment", serde_json::to_vec(&data)?),
                     obd_data::Data::Shifter(data) => ("homeassistant/sensor/ioniq/shifter", serde_json::to_vec(&data)?),
                     obd_data::Data::Panda(data) => ("homeassistant/sensor/ioniq/panda", serde_json::to_vec(&data)?),
