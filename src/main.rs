@@ -170,7 +170,7 @@ async fn main() {
 
 async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
     let mut socket = tmq::subscribe(&Context::new())
-        .connect("tcp://127.0.0.1:7015")? // Port for the CAN stream
+        .connect(&format!("tcp://127.0.0.1:{}", get_port("can")))?
         .subscribe(&[])?;
 
     let mut last_shifter_message = Instant::now();
@@ -690,7 +690,7 @@ async fn comma_ui(comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
 }
 
 async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
-    let mut mqttoptions = MqttOptions::new("ioniq2mqtt", "mqtt.petschek.cc", 8883);
+    let mut mqttoptions = MqttOptions::new("ioniq2mqtt", "petschek.cc", 8883);
     mqttoptions.set_keep_alive(Duration::from_secs(5));
 
     let ca = include_bytes!("../certs/ca.crt");

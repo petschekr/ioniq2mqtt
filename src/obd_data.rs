@@ -247,14 +247,15 @@ pub struct ICCU01 {
 }
 impl Process for ICCU01 {
     fn process(data: &[u8]) -> Option<Data> {
-        Some(Data::ICCU01(Self {
-            ac_maximum_current_limit: u16::from_be_bytes(data[12..14].try_into().unwrap()) as f32 / 10.0,
-            dc_maximum_current_limit: u16::from_be_bytes(data[10..12].try_into().unwrap()) as f32 / 10.0,
-            dc_target_voltage: u16::from_be_bytes(data[8..10].try_into().unwrap()) as f32 / 10.0,
-            v2l_ac_target_voltage: u16::from_be_bytes(data[14..16].try_into().unwrap()) as f32 / 10.0,
-            v2l_ac_current_limit: data[17] as f32,
-            v2l_dc_current_limit: data[16] as f32,
-        }))
+        None
+        // Some(Data::ICCU01(Self {
+        //     ac_maximum_current_limit: u16::from_be_bytes(data[12..14].try_into().unwrap()) as f32 / 10.0,
+        //     dc_maximum_current_limit: u16::from_be_bytes(data[10..12].try_into().unwrap()) as f32 / 10.0,
+        //     dc_target_voltage: u16::from_be_bytes(data[8..10].try_into().unwrap()) as f32 / 10.0,
+        //     v2l_ac_target_voltage: u16::from_be_bytes(data[14..16].try_into().unwrap()) as f32 / 10.0,
+        //     v2l_ac_current_limit: data[17] as f32,
+        //     v2l_dc_current_limit: data[16] as f32,
+        // }))
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -279,29 +280,30 @@ pub struct ICCU02 {
 }
 impl Process for ICCU02 {
     fn process(data: &[u8]) -> Option<Data> {
-        let mut data = Self {
-            obc_ac_current_a: i16::from_be_bytes(data[13..15].try_into().unwrap()) as f32 / 100.0,
-            obc_ac_current_b: i16::from_be_bytes(data[15..17].try_into().unwrap()) as f32 / 100.0,
-            obc_ac_frequency: data[10] as f32,
-            obc_ac_total_current: i16::from_be_bytes(data[11..13].try_into().unwrap()) as f32 / 100.0,
-            obc_ac_voltage_a: u16::from_be_bytes(data[4..6].try_into().unwrap()) as f32 / 10.0,
-            obc_ac_voltage_b: u16::from_be_bytes(data[6..8].try_into().unwrap()) as f32 / 10.0,
-            obc_ac_power: 0.0,
+        None // Values exist but are all incorrect or zero
+        // let mut data = Self {
+        //     obc_ac_current_a: i16::from_be_bytes(data[13..15].try_into().unwrap()) as f32 / 100.0,
+        //     obc_ac_current_b: i16::from_be_bytes(data[15..17].try_into().unwrap()) as f32 / 100.0,
+        //     obc_ac_frequency: data[10] as f32,
+        //     obc_ac_total_current: i16::from_be_bytes(data[11..13].try_into().unwrap()) as f32 / 100.0,
+        //     obc_ac_voltage_a: u16::from_be_bytes(data[4..6].try_into().unwrap()) as f32 / 10.0,
+        //     obc_ac_voltage_b: u16::from_be_bytes(data[6..8].try_into().unwrap()) as f32 / 10.0,
+        //     obc_ac_power: 0.0,
 
-            obc_dc_current_a: i16::from_be_bytes(data[23..25].try_into().unwrap()) as f32 / 100.0,
-            obc_dc_current_b: i16::from_be_bytes(data[25..27].try_into().unwrap()) as f32 / 100.0,
-            obc_dc_total_current: i16::from_be_bytes(data[21..23].try_into().unwrap()) as f32 / 100.0,
-            obc_dc_voltage: u16::from_be_bytes(data[19..21].try_into().unwrap()) as f32 / 10.0,
-            obc_dc_power: 0.0,
-            obc_charging_loss: 0.0,
+        //     obc_dc_current_a: i16::from_be_bytes(data[23..25].try_into().unwrap()) as f32 / 100.0,
+        //     obc_dc_current_b: i16::from_be_bytes(data[25..27].try_into().unwrap()) as f32 / 100.0,
+        //     obc_dc_total_current: i16::from_be_bytes(data[21..23].try_into().unwrap()) as f32 / 100.0,
+        //     obc_dc_voltage: u16::from_be_bytes(data[19..21].try_into().unwrap()) as f32 / 10.0,
+        //     obc_dc_power: 0.0,
+        //     obc_charging_loss: 0.0,
 
-            obc_temp_a: data[27] as i8 - 40,
-            obc_temp_b: data[28] as i8 - 40,
-        };
-        data.obc_ac_power = data.obc_ac_total_current * data.obc_ac_voltage_a / 1000.0;
-        data.obc_dc_power = data.obc_dc_total_current * data.obc_dc_voltage / 1000.0;
-        data.obc_charging_loss = data.obc_ac_power - data.obc_dc_power;
-        Some(Data::ICCU02(data))
+        //     obc_temp_a: data[27] as i8 - 40,
+        //     obc_temp_b: data[28] as i8 - 40,
+        // };
+        // data.obc_ac_power = data.obc_ac_total_current * data.obc_ac_voltage_a / 1000.0;
+        // data.obc_dc_power = data.obc_dc_total_current * data.obc_dc_voltage / 1000.0;
+        // data.obc_charging_loss = data.obc_ac_power - data.obc_dc_power;
+        // Some(Data::ICCU02(data))
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -311,10 +313,11 @@ pub struct ICCU03 {
 }
 impl Process for ICCU03 {
     fn process(data: &[u8]) -> Option<Data> {
-        Some(Data::ICCU03(Self {
-            obc_dc_target_current: u16::from_be_bytes(data[10..12].try_into().unwrap()) as f32 / 10.0,
-            obc_dc_target_voltage: u16::from_be_bytes(data[8..10].try_into().unwrap()) as f32 / 10.0,
-        }))
+        None
+        // Some(Data::ICCU03(Self {
+        //     obc_dc_target_current: u16::from_be_bytes(data[10..12].try_into().unwrap()) as f32 / 10.0,
+        //     obc_dc_target_voltage: u16::from_be_bytes(data[8..10].try_into().unwrap()) as f32 / 10.0,
+        // }))
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -492,19 +495,20 @@ pub struct IGPM03 {
 }
 impl Process for IGPM03 {
     fn process(data: &[u8]) -> Option<Data> {
-        Some(Data::IGPM03(Self {
-            ignition_on: data[5] & 0x60 > 0,
-            driver_seat_belt: data[5] & (1 << 1) > 0,
-            passenger_seat_belt: data[5] & (1 << 2) > 0,
-            hood_open: data[5] & (1 << 0) > 0,
-            rear_left_door_open: data[4] & (1 << 0) > 0,
-            rear_left_door_unlocked: data[4] & (1 << 1) > 0,
-            rear_right_door_open: data[4] & (1 << 2) > 0,
-            rear_right_door_unlocked: data[4] & (1 << 3) > 0,
-            passenger_door_open: data[4] & (1 << 4) > 0,
-            driver_door_open: data[4] & (1 << 5) > 0,
-            trunk_open: data[4] & (1 << 7) > 0,
-        }))
+        None
+        // Some(Data::IGPM03(Self {
+        //     ignition_on: data[5] & 0x60 > 0,
+        //     driver_seat_belt: data[5] & (1 << 1) > 0,
+        //     passenger_seat_belt: data[5] & (1 << 2) > 0,
+        //     hood_open: data[5] & (1 << 0) > 0,
+        //     rear_left_door_open: data[4] & (1 << 0) > 0,
+        //     rear_left_door_unlocked: data[4] & (1 << 1) > 0,
+        //     rear_right_door_open: data[4] & (1 << 2) > 0,
+        //     rear_right_door_unlocked: data[4] & (1 << 3) > 0,
+        //     passenger_door_open: data[4] & (1 << 4) > 0,
+        //     driver_door_open: data[4] & (1 << 5) > 0,
+        //     trunk_open: data[4] & (1 << 7) > 0,
+        // }))
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -517,12 +521,16 @@ pub struct IGPM04 {
 }
 impl Process for IGPM04 {
     fn process(data: &[u8]) -> Option<Data> {
-        Some(Data::IGPM04(Self {
-            driver_door_unlocked: data[4] & (1 << 3) > 0,
-            passenger_door_unlocked: data[4] & (1 << 2) > 0,
-            rear_left_seat_belt: data[6] & (1 << 2) > 0,
-            rear_center_seat_belt: data[6] & (1 << 3) > 0,
-            rear_right_seat_belt: data[6] & (1 << 4) > 0,
+        None
+        // Some(Data::IGPM04(Self {
+        //     driver_door_unlocked: data[4] & (1 << 3) > 0,
+        //     passenger_door_unlocked: data[4] & (1 << 2) > 0,
+        //     rear_left_seat_belt: data[6] & (1 << 2) > 0,
+        //     rear_center_seat_belt: data[6] & (1 << 3) > 0,
+        //     rear_right_seat_belt: data[6] & (1 << 4) > 0,
+        // }))
+    }
+}
         }))
     }
 }
