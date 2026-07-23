@@ -1,7 +1,7 @@
-using Cxx = import "./include/c++.capnp";
+using Cxx = import "/include/c++.capnp";
 $Cxx.namespace("cereal");
 
-using Car = import "car.capnp";
+using Car = import "/car.capnp";
 using Deprecated = import "deprecated.capnp";
 using Custom = import "custom.capnp";
 
@@ -414,6 +414,10 @@ struct CanData {
 struct DeviceState @0xa4d8b5af2aa492eb {
   deviceType @45 :InitData.DeviceType;
 
+  # usb
+  chestnutPresent @51 :Bool;
+  usbState @52 :UsbState;
+
   networkType @22 :NetworkType;
   networkInfo @31 :NetworkInfo;
   networkStrength @24 :NetworkStrength;
@@ -684,33 +688,47 @@ struct PeripheralState {
   }
 }
 
+struct UsbState {
+  devices @0 :List(Device);
+
+  struct Device {
+    busnum @0 :UInt8;
+    devnum @1 :UInt8;
+    vendorId @2 :UInt16;
+    productId @3 :UInt16;
+    speedMbps @4 :UInt16;
+    manufacturer @6 :Text;
+    product @5 :Text;
+    linkErrorCount @7 :UInt16;
+  }
+}
+
 struct RadarState @0x9a185389d6fdd05f {
-  mdMonoTime @6 :UInt64;
-  carStateMonoTime @11 :UInt64;
+  mdMonoTime @6 :UInt64;  # for debugging
   radarErrors @13 :Car.RadarData.Error;
 
   leadOne @3 :LeadData;
   leadTwo @4 :LeadData;
 
   struct LeadData {
-    dRel @0 :Float32;
-    yRel @1 :Float32;
-    vRel @2 :Float32;
-    aRel @3 :Float32;
-    vLead @4 :Float32;
-    dPath @6 :Float32;
-    vLat @7 :Float32;
-    vLeadK @8 :Float32;
-    aLeadK @9 :Float32;
-    fcw @10 :Bool;
-    status @11 :Bool;
-    aLeadTau @12 :Float32;
-    modelProb @13 :Float32;
-    radar @14 :Bool;
-    radarTrackId @15 :Int32 = -1;
+    dRel @0 :Float32;  # m from the front bumper of the car
+    yRel @1 :Float32;  # m in car frame, left positive
+    vRel @2 :Float32;  # m/s relative longitudinal speed
+    vLead @4 :Float32;  # m/s absolute lead speed
+    vLeadK @8 :Float32;  # kalman-filtered lead speed
+    aLeadK @9 :Float32;  # kalman-filtered lead accel
+    present @11 :Bool;  # true if a lead is present
+    aLeadTau @12 :Float32;  # lead accel time constant
+    modelProb @13 :Float32;  # vision model lead probability
+    radar @14 :Bool;  # true if lead is radar-matched (vs vision-only)
+    radarTrackId @15 :Int32 = -1;  # for debugging
 
     deprecated :group {
+      aRel @3 :Float32;
       aLead @5 :Float32;
+      dPath @6 :Float32;
+      vLat @7 :Float32;
+      fcw @10 :Bool;
     }
   }
 
@@ -723,6 +741,7 @@ struct RadarState @0x9a185389d6fdd05f {
     calPerc @9 :Int8;
     canMonoTimes @10 :List(UInt64);
     cumLagMs @5 :Float32;
+    carStateMonoTime @11 :UInt64;
     radarErrors @12 :List(Car.RadarData.ErrorDEPRECATED);
   }
 }
@@ -771,12 +790,29 @@ struct SelfdriveState {
   alertStatus @5 :AlertStatus;
   alertSize @6 :AlertSize;
   alertType @7 :Text;
-  alertSound @8 :Car.CarControl.HUDControl.AudibleAlert;
+  alertSound @13 :AudibleAlert;
   alertHudVisual @12 :Car.CarControl.HUDControl.VisualAlert;
 
   # configurable driving settings
   experimentalMode @10 :Bool;
   personality @11 :LongitudinalPersonality;
+
+  enum AudibleAlert {
+    none @0;
+
+    engage @1;
+    disengage @2;
+    refuse @3;
+
+    warningSoft @4;
+    warningImmediate @5;
+
+    prompt @6;
+    promptRepeat @7;
+    promptDistracted @8;
+
+    preAlert @9;
+  }
 
   enum OpenpilotState @0xdbe58b96d2d1ac61 {
     disabled @0;
@@ -798,6 +834,10 @@ struct SelfdriveState {
     mid @2;
     full @3;
   }
+
+  deprecated :group {
+    alertSound @8 :Car.CarControl.HUDControl.AudibleAlert;
+  }
 }
 
 struct ControlsState @0x97ff69c53601abf1 {
@@ -818,7 +858,7 @@ struct ControlsState @0x97ff69c53601abf1 {
     debugState @59 :LateralDebugState;
     torqueState @60 :LateralTorqueState;
 
-    curvatureStateDEPRECATED @65 :Deprecated.LateralCurvatureState;
+    curvatureState @65 :LateralCurvatureState;
     lqrStateDEPRECATED @55 :Deprecated.LateralLQRState;
     indiStateDEPRECATED @52 :Deprecated.LateralINDIState;
   }
@@ -867,6 +907,18 @@ struct ControlsState @0x97ff69c53601abf1 {
     saturated @3 :Bool;
   }
 
+  struct LateralCurvatureState @0xad9d8095c06f7c61 {
+    active @0 :Bool;
+    actualCurvature @1 :Float32;
+    desiredCurvature @2 :Float32;
+    error @3 :Float32;
+    p @4 :Float32;
+    i @5 :Float32;
+    f @6 :Float32;
+    output @7 :Float32;
+    saturated @8 :Bool;
+  }
+
   deprecated :group {
     vEgo @0 :Float32;
     vEgoRaw @32 :Float32;
@@ -906,7 +958,7 @@ struct ControlsState @0x97ff69c53601abf1 {
     alertStatus @38 :SelfdriveState.AlertStatus;
     alertSize @39 :SelfdriveState.AlertSize;
     alertType @44 :Text;
-    alertSound2 @56 :Car.CarControl.HUDControl.AudibleAlert;
+    alertSound2 @56 :SelfdriveState.AudibleAlert;
     engageable @41 :Bool;  # can OP be engaged?
     state @31 :SelfdriveState.OpenpilotState;
     enabled @19 :Bool;
@@ -989,7 +1041,6 @@ struct ModelDataV2 {
   roadEdgeStds @14 :List(Float32);
 
   # predicted lead cars
-  leads @11 :List(LeadDataV2);
   leadsV3 @18 :List(LeadDataV3);
 
   meta @12 :MetaData;
@@ -999,8 +1050,9 @@ struct ModelDataV2 {
   action @26: Action;
 
   lateralPlannerSolutionDEPRECATED @25: Deprecated.LateralPlannerSolution;
+  leadsDEPRECATED @11 :List(LeadDataV2DEPRECATED);
 
-  struct LeadDataV2 {
+  struct LeadDataV2DEPRECATED {
     prob @0 :Float32; # probability that car is your lead at time t
     t @1 :Float32;
 
@@ -1120,7 +1172,7 @@ struct EncodeIndex {
   }
 }
 
-struct AndroidLogEntry {
+struct OperatingSystemLogEntry {
   id @0 :UInt8;
   ts @1 :UInt64;
   priority @2 :UInt8;
@@ -1258,7 +1310,7 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
 struct LiveLocationKalman {
 
   # More info on reference frames:
-  # https://github.com/commaai/openpilot/tree/master/common/transformations
+  # https://github.com/commaai/openpilot/tree/master/openpilot/common/transformations
 
   positionECEF @0 : Measurement;
   positionGeodetic @1 : Measurement;
@@ -1315,7 +1367,7 @@ struct LiveLocationKalman {
 
 struct LivePose {
   # More info on reference frames:
-  # https://github.com/commaai/openpilot/tree/master/common/transformations
+  # https://github.com/commaai/openpilot/tree/master/openpilot/common/transformations
   orientationNED @0 :XYZMeasurement;
   velocityDevice @1 :XYZMeasurement;
   accelerationDevice @2 :XYZMeasurement;
@@ -2108,8 +2160,10 @@ struct DriverMonitoringStateDEPRECATED @0xb83cda094a1da284 {
 
 struct DriverMonitoringState {
   lockout @0 :Bool;
-  alertCountLockoutPercent @1 :Int8;
-  alertTimeLockoutPercent @2 :Int8;
+  lockoutRecoveryPercent @11 :Int8;
+  alert3Count @12 :Int8;
+  noResponseCount @13 :Int8;
+  noResponseForceDecel @14 :Bool;
 
   alwaysOn @3 :Bool;
   alwaysOnLockout @4 :Bool;
@@ -2172,6 +2226,11 @@ struct DriverMonitoringState {
   struct CalibrationState {
     calibratedPercent @0 :Int8;
     offset @1 :Float32;
+  }
+
+  deprecated :group {
+    alertCountLockoutPercent @1 :Int8;
+    alertTimeLockoutPercent @2 :Int8;
   }
 }
 
@@ -2247,6 +2306,7 @@ struct LiveDelayData {
   lateralDelayEstimateStd @5 :Float32;
   points @4 :List(Float32);
   calPerc @6 :Int8;
+  version @7 :Int32;
 
   enum Status {
     unestimated @0;
@@ -2504,7 +2564,7 @@ struct Event {
     rawAudioData @147 :AudioData;
 
     # systems stuff
-    androidLog @20 :AndroidLogEntry;
+    operatingSystemLog @20 :OperatingSystemLogEntry;
     managerState @78 :ManagerState;
     procLog @33 :ProcLog;
     clocks @35 :Clocks;
