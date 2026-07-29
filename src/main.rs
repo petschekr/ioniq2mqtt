@@ -149,6 +149,7 @@ async fn main() {
 
     let mut tasks = vec![];
 
+    tokio::time::sleep(Duration::from_millis(5000)).await; // Wait until bridge comes online
     tasks.push(tokio::spawn(update_can(raw_tx.clone())));
     tasks.push(tokio::spawn(update_panda_info(raw_tx.clone())));
     tasks.push(tokio::spawn(update_location(raw_tx.clone(), abrp_telemetry.clone(), comma_telemetry.clone())));
@@ -218,6 +219,7 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
                                 0x753 => obd_data::VCMS03::process(data),
                                 0x754 => obd_data::VCMS04::process(data),
                                 0x760 => obd_data::Dashboard::process(data),
+                                0x761 => None, // Phantom data returned by dashboard
                                 0x773 => obd_data::IGPM03::process(data),
                                 0x774 => obd_data::IGPM04::process(data),
                                 0x776 => obd_data::IGPM06::process(data),
