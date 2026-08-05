@@ -482,67 +482,52 @@ impl Process for Dashboard {
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct IGPM03 {
-    pub ignition_on: bool,
-    pub driver_seat_belt: bool,
-    pub passenger_seat_belt: bool,
-    pub hood_open: bool,
-    pub rear_right_door_open: bool,
-    pub rear_right_door_unlocked: bool,
-    pub rear_left_door_open: bool,
-    pub rear_left_door_unlocked: bool,
-    pub driver_door_open: bool,
-    pub passenger_door_open: bool,
-    pub trunk_open: bool,
-}
-impl Process for IGPM03 {
-    fn process(data: &[u8]) -> Option<Data> {
-        None
-        // Some(Data::IGPM03(Self {
-        //     ignition_on: data[5] & 0x60 > 0,
-        //     driver_seat_belt: data[5] & (1 << 1) > 0,
-        //     passenger_seat_belt: data[5] & (1 << 2) > 0,
-        //     hood_open: data[5] & (1 << 0) > 0,
-        //     rear_left_door_open: data[4] & (1 << 0) > 0,
-        //     rear_left_door_unlocked: data[4] & (1 << 1) > 0,
-        //     rear_right_door_open: data[4] & (1 << 2) > 0,
-        //     rear_right_door_unlocked: data[4] & (1 << 3) > 0,
-        //     passenger_door_open: data[4] & (1 << 4) > 0,
-        //     driver_door_open: data[4] & (1 << 5) > 0,
-        //     trunk_open: data[4] & (1 << 7) > 0,
-        // }))
-    }
-}
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct IGPM04 {
+pub struct BDC13 {
     pub driver_door_unlocked: bool,
     pub passenger_door_unlocked: bool,
-    pub rear_left_seat_belt: bool,
-    pub rear_center_seat_belt: bool,
-    pub rear_right_seat_belt: bool,
+    pub rear_left_door_unlocked: bool,
+    pub rear_right_door_unlocked: bool,
 }
-impl Process for IGPM04 {
+impl Process for BDC13 {
     fn process(data: &[u8]) -> Option<Data> {
-        None
-        // Some(Data::IGPM04(Self {
-        //     driver_door_unlocked: data[4] & (1 << 3) > 0,
-        //     passenger_door_unlocked: data[4] & (1 << 2) > 0,
-        //     rear_left_seat_belt: data[6] & (1 << 2) > 0,
-        //     rear_center_seat_belt: data[6] & (1 << 3) > 0,
-        //     rear_right_seat_belt: data[6] & (1 << 4) > 0,
-        // }))
+        Some(Data::BDC13(Self {
+            // TODO: Figure out how these change per door
+            driver_door_unlocked: data[4] != 0x00, // data[4] == 0x0F && data[8] == 0x20 when unlocked
+            passenger_door_unlocked: data[4] != 0x00,
+            rear_left_door_unlocked: data[4] != 0x00,
+            rear_right_door_unlocked: data[4] != 0x00,
+        }))
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct IGPM06 {
-    pub brake_light: bool,
-    pub brake_light_raw: u8,
+pub struct BDC15 {
+    pub driver_door_open: bool,
+    pub passenger_door_open: bool,
+    pub rear_left_door_open: bool,
+    pub rear_right_door_open: bool,
+    pub hood_open: bool,
+    pub trunk_open: bool,
 }
-impl Process for IGPM06 {
+impl Process for BDC15 {
     fn process(data: &[u8]) -> Option<Data> {
-        Some(Data::IGPM06(Self {
-            brake_light: data.get(4).copied().map(|status| status > 0).unwrap_or(false),
-            brake_light_raw: data.get(4).copied().unwrap_or(255),
+        Some(Data::BDC15(Self {
+            driver_door_open: data[4] & (1 << 5) > 0,
+            passenger_door_open: data[4] & (1 << 6) > 0,
+            rear_left_door_open: data[4] & (1 << 7) > 0,
+            rear_right_door_open: data[5] & (1 << 0) > 0,
+            hood_open: data[5] & (1 << 1) > 0,
+            trunk_open: data[4] & (1 << 4) > 0,
+        }))
+    }
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BDC17 {
+    pub brake_light: bool,
+}
+impl Process for BDC17 {
+    fn process(data: &[u8]) -> Option<Data> {
+        Some(Data::BDC17(Self {
+            brake_light: data[4] & (1 << 3) > 0,
         }))
     }
 }
@@ -635,9 +620,9 @@ pub enum Data {
     VCMS03(VCMS03),
     VCMS04(VCMS04),
     Dashboard(Dashboard),
-    IGPM03(IGPM03),
-    IGPM04(IGPM04),
-    IGPM06(IGPM06),
+    BDC13(BDC13),
+    BDC15(BDC15),
+    BDC17(BDC17),
     CabinEnvironment(CabinEnvironment),
     Shifter(Shifter),
     Panda(Panda),

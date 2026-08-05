@@ -219,10 +219,10 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
                                 0x753 => obd_data::VCMS03::process(data),
                                 0x754 => obd_data::VCMS04::process(data),
                                 0x760 => obd_data::Dashboard::process(data),
-                                0x761 => None, // Phantom data returned by dashboard
-                                0x773 => obd_data::IGPM03::process(data),
-                                0x774 => obd_data::IGPM04::process(data),
-                                0x776 => obd_data::IGPM06::process(data),
+                                0x761 => continue, // Phantom data returned by dashboard
+                                0x773 => obd_data::BDC13::process(data),
+                                0x775 => obd_data::BDC15::process(data),
+                                0x777 => obd_data::BDC17::process(data),
                                 0x7A0 => obd_data::CabinEnvironment::process(data),
                                 _ => {
                                     println!("Unknown forwarding address 0x{:x}", can_event.get_address());
@@ -286,11 +286,17 @@ async fn telemetry_processor(
                         else {
                             ChargingType::NotCharging
                         };
+
                         if last_charging_type != data.charging {
                             energy_at_charging = None;
                             energy_at_ignition = None;
                         }
                         last_charging_type = data.charging;
+
+                        if last_ignition_state != data.bms_ignition && data.bms_ignition {
+                            energy_at_ignition = None;
+                        }
+                        last_ignition_state = data.bms_ignition;
                     },
                     obd_data::Data::Battery05(data) => {
                         if energy_at_ignition.is_none() {
@@ -329,12 +335,6 @@ async fn telemetry_processor(
                     },
                     obd_data::Data::ICCU02(data) => {
                         is_ac_charging = data.obc_ac_total_current > 0.0;
-                    },
-                    obd_data::Data::IGPM03(data) => {
-                        if last_ignition_state != data.ignition_on && data.ignition_on {
-                            energy_at_ignition = None;
-                        }
-                        last_ignition_state = data.ignition_on;
                     },
                     obd_data::Data::Location(data) => {
                         if data.has_fix {
@@ -831,30 +831,23 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Panda Voltage", "panda_aux_battery_voltage", "voltage", "ioniq/panda").with_unit("V").measurement(),
         HASSSensor::new("Panda Current", "panda_aux_battery_current", "current", "ioniq/panda").with_unit("A").measurement(),
         HASSSensor::new("Panda Fan", "panda_fan_speed", "frequency", "ioniq/panda").with_unit("Hz").measurement(),
-
-        HASSSensor::new("Brake Light Raw", "brake_light_raw", "","ioniq/vcms06").measurement(),
     ];
     let binary_sensors = [
-        HASSBinarySensor::new("Ignition On", "ignition_on", "power","ioniq/igpm03"),
-        //HASSBinarySensor::new("Driver Seat Belt", "driver_seat_belt", "occupancy","ioniq/igpm03"),
-        // HASSBinarySensor::new("Passenger Seat Belt", "passenger_seat_belt", "occupancy","ioniq/igpm03"),
-        HASSBinarySensor::new("Hood", "hood_open", "door","ioniq/igpm03"),
-        HASSBinarySensor::new("Rear Right Door", "rear_right_door_open", "door","ioniq/igpm03"),
-        HASSBinarySensor::new("Rear Left Door", "rear_left_door_open", "door","ioniq/igpm03"),
-        HASSBinarySensor::new("Rear Right Unlocked", "rear_right_door_unlocked", "lock","ioniq/igpm03"),
-        HASSBinarySensor::new("Rear Left Unlocked", "rear_left_door_unlocked", "lock","ioniq/igpm03"),
-        HASSBinarySensor::new("Passenger Door", "passenger_door_open", "door","ioniq/igpm03"),
-        HASSBinarySensor::new("Driver Door", "driver_door_open", "door","ioniq/igpm03"),
-        HASSBinarySensor::new("Trunk", "trunk_open", "door","ioniq/igpm03"),
-        HASSBinarySensor::new("Passenger Door Unlocked", "passenger_door_unlocked", "lock","ioniq/igpm04"),
-        HASSBinarySensor::new("Driver Door Unlocked", "driver_door_unlocked", "lock","ioniq/igpm04"),
-        HASSBinarySensor::new("Rear Left Seat Belt", "rear_left_seat_belt", "occupancy","ioniq/igpm04"),
-        HASSBinarySensor::new("Rear Center Seat Belt", "rear_center_seat_belt", "occupancy","ioniq/igpm04"),
-        HASSBinarySensor::new("Rear Right Seat Belt", "rear_right_seat_belt", "occupancy","ioniq/igpm04"),
+        HASSBinarySensor::new("Ignition On", "bms_ignition", "power","ioniq/batterydata1"),
+        HASSBinarySensor::new("Hood", "hood_open", "door", "ioniq/bdc15"),
+        HASSBinarySensor::new("Driver Door", "driver_door_open", "door","ioniq/bdc15"),
+        HASSBinarySensor::new("Passenger Door", "passenger_door_open", "door","ioniq/bdc15"),
+        HASSBinarySensor::new("Rear Left Door", "rear_left_door_open", "door","ioniq/bdc15"),
+        HASSBinarySensor::new("Rear Right Door", "rear_right_door_open", "door","ioniq/bdc15"),
+        HASSBinarySensor::new("Trunk", "trunk_open", "door", "ioniq/bdc15"),
+        HASSBinarySensor::new("Driver Door Unlocked", "driver_door_unlocked", "lock", "ioniq/bdc13"),
+        HASSBinarySensor::new("Passenger Door Unlocked", "passenger_door_unlocked", "lock", "ioniq/bdc13"),
+        HASSBinarySensor::new("Rear Left Unlocked", "rear_left_door_unlocked", "lock", "ioniq/bdc13"),
+        HASSBinarySensor::new("Rear Right Unlocked", "rear_right_door_unlocked", "lock", "ioniq/bdc13"),
 
         HASSBinarySensor::new("Plugged In", "plugged_in", "plug","ioniq/vcms03"),
 
-        HASSBinarySensor::new("Brake Light", "brake_light", "light","ioniq/vcms06"),
+        HASSBinarySensor::new("Brake Light", "brake_light", "light","ioniq/bdc17"),
     ];
 
     for sensor in sensors.iter() {
@@ -884,9 +877,9 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
                     obd_data::Data::VCMS03(data) => ("homeassistant/sensor/ioniq/vcms03", serde_json::to_vec(&data)?),
                     obd_data::Data::VCMS04(data) => ("homeassistant/sensor/ioniq/vcms04", serde_json::to_vec(&data)?),
                     obd_data::Data::Dashboard(data) => ("homeassistant/sensor/ioniq/dashboard", serde_json::to_vec(&data)?),
-                    obd_data::Data::IGPM03(data) => ("homeassistant/sensor/ioniq/igpm03", serde_json::to_vec(&data)?),
-                    obd_data::Data::IGPM04(data) => ("homeassistant/sensor/ioniq/igpm04", serde_json::to_vec(&data)?),
-                    obd_data::Data::IGPM06(data) => ("homeassistant/sensor/ioniq/igpm06", serde_json::to_vec(&data)?),
+                    obd_data::Data::BDC13(data) => ("homeassistant/sensor/ioniq/bdc13", serde_json::to_vec(&data)?),
+                    obd_data::Data::BDC15(data) => ("homeassistant/sensor/ioniq/bdc15", serde_json::to_vec(&data)?),
+                    obd_data::Data::BDC17(data) => ("homeassistant/sensor/ioniq/bdc17", serde_json::to_vec(&data)?),
                     obd_data::Data::CabinEnvironment(data) => ("homeassistant/sensor/ioniq/cabinenvironment", serde_json::to_vec(&data)?),
                     obd_data::Data::Shifter(data) => ("homeassistant/sensor/ioniq/shifter", serde_json::to_vec(&data)?),
                     obd_data::Data::Panda(data) => ("homeassistant/sensor/ioniq/panda", serde_json::to_vec(&data)?),
