@@ -847,7 +847,8 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
 
         HASSBinarySensor::new("Plugged In", "plugged_in", "plug","ioniq/vcms03"),
 
-        HASSBinarySensor::new("Brake Light", "brake_light", "light","ioniq/bdc17"),
+        // Updates too frequently and isn't used for anything in Home Assistant
+        // HASSBinarySensor::new("Brake Light", "brake_light", "light","ioniq/bdc17"),
     ];
 
     for sensor in sensors.iter() {
