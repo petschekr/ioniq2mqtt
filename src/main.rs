@@ -697,13 +697,11 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
     mqttoptions.set_keep_alive(Duration::from_secs(5));
 
     let ca = include_bytes!("../certs/ca.crt");
-    let client_cert = include_bytes!("../certs/client.crt");
-    let client_key = include_bytes!("../certs/client.key");
+    let client_p12 = include_bytes!("../certs/client.p12");
 
-    mqttoptions.set_transport(Transport::Tls(TlsConfiguration::Simple {
+    mqttoptions.set_transport(Transport::tls_with_config(TlsConfiguration::SimpleNative {
         ca: ca.to_vec(),
-        alpn: None,
-        client_auth: Some((client_cert.to_vec(), client_key.to_vec())),
+        client_auth: Some((client_p12.to_vec(), String::new())),
     }));
 
     let (client, mut eventloop) = AsyncClient::new(mqttoptions, 10);
