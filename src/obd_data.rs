@@ -482,6 +482,17 @@ impl Process for Dashboard {
     }
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BDC03 {
+    pub ignition: bool,
+}
+impl Process for BDC03 {
+    fn process(data: &[u8]) -> Option<Data> {
+        Some(Data::BDC03(Self {
+            ignition: data.get(5).unwrap_or(&0) & 0x60 > 0,
+        }))
+    }
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BDC13 {
     pub driver_door_unlocked: bool,
     pub passenger_door_unlocked: bool,
@@ -620,6 +631,7 @@ pub enum Data {
     VCMS03(VCMS03),
     VCMS04(VCMS04),
     Dashboard(Dashboard),
+    BDC03(BDC03),
     BDC13(BDC13),
     BDC15(BDC15),
     BDC17(BDC17),

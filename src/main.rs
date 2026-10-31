@@ -220,6 +220,7 @@ async fn update_can(tx: Sender<(obd_data::Data, String)>) -> Result<()> {
                                 0x754 => obd_data::VCMS04::process(data),
                                 0x760 => obd_data::Dashboard::process(data),
                                 0x761 => continue, // Phantom data returned by dashboard
+                                0x772 => obd_data::BDC03::process(data),
                                 0x773 => obd_data::BDC13::process(data),
                                 0x775 => obd_data::BDC15::process(data),
                                 0x777 => obd_data::BDC17::process(data),
@@ -292,11 +293,12 @@ async fn telemetry_processor(
                             energy_at_ignition = None;
                         }
                         last_charging_type = data.charging;
-
-                        if last_ignition_state != data.bms_ignition && data.bms_ignition {
+                    },
+                    obd_data::Data::BDC03(data) => {
+                        if last_ignition_state != data.ignition && data.ignition {
                             energy_at_ignition = None;
                         }
-                        last_ignition_state = data.bms_ignition;
+                        last_ignition_state = data.ignition;
                     },
                     obd_data::Data::Battery05(data) => {
                         if energy_at_ignition.is_none() {
@@ -831,7 +833,7 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
         HASSSensor::new("Panda Fan", "panda_fan_speed", "frequency", "ioniq/panda").with_unit("Hz").measurement(),
     ];
     let binary_sensors = [
-        HASSBinarySensor::new("Ignition On", "bms_ignition", "power","ioniq/batterydata1"),
+        HASSBinarySensor::new("Ignition On", "ignition", "power","ioniq/bdc03"),
         HASSBinarySensor::new("Hood", "hood_open", "door", "ioniq/bdc15"),
         HASSBinarySensor::new("Driver Door", "driver_door_open", "door","ioniq/bdc15"),
         HASSBinarySensor::new("Passenger Door", "passenger_door_open", "door","ioniq/bdc15"),
@@ -876,6 +878,7 @@ async fn mqtt(mut rx: Receiver<(obd_data::Data, String)>) -> Result<()> {
                     obd_data::Data::VCMS03(data) => ("homeassistant/sensor/ioniq/vcms03", serde_json::to_vec(&data)?),
                     obd_data::Data::VCMS04(data) => ("homeassistant/sensor/ioniq/vcms04", serde_json::to_vec(&data)?),
                     obd_data::Data::Dashboard(data) => ("homeassistant/sensor/ioniq/dashboard", serde_json::to_vec(&data)?),
+                    obd_data::Data::BDC03(data) => ("homeassistant/sensor/ioniq/bdc03", serde_json::to_vec(&data)?),
                     obd_data::Data::BDC13(data) => ("homeassistant/sensor/ioniq/bdc13", serde_json::to_vec(&data)?),
                     obd_data::Data::BDC15(data) => ("homeassistant/sensor/ioniq/bdc15", serde_json::to_vec(&data)?),
                     obd_data::Data::BDC17(data) => ("homeassistant/sensor/ioniq/bdc17", serde_json::to_vec(&data)?),
