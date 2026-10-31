@@ -521,9 +521,13 @@ struct Ioniq @0xbd443b539493bc68 {
     maximumChargePower @18 :Float32;
     energySinceIgnition @19 :Float32;
     energySinceCharging @20 :Float32;
+    acChargeSessionDuration @21 :Text;
+    dcChargeSessionDuration @22 :Text;
 
     sunrise @15 :Text;
     sunset @16 :Text;
+
+    brakeLight @23 :Bool;
 }
 
 struct CustomReserved16 @0xfc6241ed8877b611 {

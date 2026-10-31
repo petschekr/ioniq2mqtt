@@ -100,9 +100,13 @@ struct CommaUITelemetry {
     maximum_charge_power: f32,
     energy_since_ignition: f32,
     energy_since_charging: f32,
+    ac_charge_session_duration: String,
+    dc_charge_session_duration: String,
 
     sunrise: String,
     sunset: String,
+
+    brake_light: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -130,6 +134,22 @@ fn get_port(endpoint: &str) -> u16 {
         hash_value = hash_value.wrapping_mul(FNV_PRIME);
     }
     START_PORT + (hash_value % (MAX_PORT - START_PORT) as u64) as u16
+}
+
+fn format_duration(total_seconds: u16) -> String {
+    let duration = chrono::Duration::seconds(total_seconds as i64);
+
+    let hours = duration.num_hours();
+    let minutes = duration.num_minutes() % 60;
+    let seconds = duration.num_seconds() % 60;
+
+    if hours > 0 {
+        // Format as HH:MM:SS if 1 hour or longer
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        // Format as MM:SS if less than an hour
+        format!("{:02}:{:02}", minutes, seconds)
+    }
 }
 
 #[tokio::main]
@@ -447,10 +467,27 @@ async fn telemetry_updater(
                             comma_telemetry.available_charge_power = data.available_charge_power;
                             comma_telemetry.available_discharge_power = data.available_discharge_power;
                         },
+                        obd_data::Data::VCMS03(data) => {
+                            comma_telemetry.ac_charge_session_duration = if data.ac_charging_time_after_plugin > 0 {
+                                format_duration(data.ac_charging_time_after_plugin)
+                            }
+                            else {
+                                String::new()
+                            };
+                            comma_telemetry.dc_charge_session_duration = if data.dc_charging_time_after_plugin > 0 {
+                                format_duration(data.dc_charging_time_after_plugin)
+                            }
+                            else {
+                                String::new()
+                            };
+                        },
                         obd_data::Data::VCMS04(data) => {
                             comma_telemetry.ac_inlet_temp = data.ac_inlet_1_temperature;
                             comma_telemetry.dc_inlet_temp1 = data.dc_inlet_1_temperature;
                             comma_telemetry.dc_inlet_temp2 = data.dc_inlet_2_temperature;
+                        },
+                        obd_data::Data::BDC17(data) => {
+                            comma_telemetry.brake_light = data.brake_light;
                         },
                         obd_data::Data::EnergyUse(data) => {
                             comma_telemetry.energy_since_ignition = data.energy_since_ignition;
@@ -686,8 +723,11 @@ async fn comma_ui(comma_telemetry: Arc<Mutex<CommaUITelemetry>>) -> Result<()> {
             ioniq.set_maximum_charge_power(comma_telemetry.maximum_charge_power);
             ioniq.set_energy_since_ignition(comma_telemetry.energy_since_ignition);
             ioniq.set_energy_since_charging(comma_telemetry.energy_since_charging);
+            ioniq.set_ac_charge_session_duration(comma_telemetry.ac_charge_session_duration.clone());
+            ioniq.set_dc_charge_session_duration(comma_telemetry.dc_charge_session_duration.clone());
             ioniq.set_sunrise(comma_telemetry.sunrise.clone());
             ioniq.set_sunset(comma_telemetry.sunset.clone());
+            ioniq.set_brake_light(comma_telemetry.brake_light);
         }
         let serialized = serialize::write_message_to_words(&message);
         socket.send(vec!["ioniq".as_bytes(), &serialized]).await?;
