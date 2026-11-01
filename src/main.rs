@@ -136,20 +136,13 @@ fn get_port(endpoint: &str) -> u16 {
     START_PORT + (hash_value % (MAX_PORT - START_PORT) as u64) as u16
 }
 
-fn format_duration(total_seconds: u16) -> String {
-    let duration = chrono::Duration::seconds(total_seconds as i64);
+fn format_duration(total_minutes: u16) -> String {
+    let duration = chrono::Duration::minutes(total_minutes as i64);
 
     let hours = duration.num_hours();
     let minutes = duration.num_minutes() % 60;
-    let seconds = duration.num_seconds() % 60;
 
-    if hours > 0 {
-        // Format as HH:MM:SS if 1 hour or longer
-        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-    } else {
-        // Format as MM:SS if less than an hour
-        format!("{:02}:{:02}", minutes, seconds)
-    }
+    format!("{:02}:{:02}", hours, minutes)
 }
 
 #[tokio::main]
